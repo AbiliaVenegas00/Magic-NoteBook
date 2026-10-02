@@ -41,7 +41,7 @@ export const CalendarMonthView: React.FC<CalendarMonthViewProps> = ({
 
   return (
     <div 
-      className="relative bg-[#1F1F1F] border border-[#5C464B]/60 rounded-2xl sm:rounded-3xl overflow-hidden shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9)] transition-all duration-300" 
+      className="relative bg-[#1F1F1F] border border-[#5C464B]/60 rounded-2xl sm:rounded-3xl overflow-hidden shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9)] transition-all duration-300 mt-2.5 sm:mt-3.5" 
       id="calendar-month-container"
     >
       {/* Weekday Header Row - styled with #3D2C30 background */}
