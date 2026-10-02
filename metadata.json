@@ -1,0 +1,6 @@
+{
+  "name": "Assignment Task Calendar & Personal CRM",
+  "description": "Calendario visual y organizador de planes con paleta Coral Rose & Harmony en modo oscuro.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
