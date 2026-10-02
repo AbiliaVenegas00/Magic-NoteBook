@@ -43,7 +43,7 @@ export const CalendarWeekView: React.FC<CalendarWeekViewProps> = ({
       <div className="overflow-x-auto">
         <div className="min-w-[640px] sm:min-w-0">
           {/* 7-Day Column Header */}
-          <div className="relative z-10 grid grid-cols-8 border-b border-[#5C464B]/50 bg-[#1F1F1F] text-xs font-semibold text-white">
+          <div className="relative z-10 grid grid-cols-8 border-b border-[#5C464B]/50 bg-[#3D2C30] text-xs font-semibold text-white">
             <div className="p-3 text-[#E5A0B6] border-r border-[#5C464B]/40 flex items-center justify-center font-mono text-[11px]">
               <Clock className="w-3.5 h-3.5 text-[#FF688B]" />
             </div>

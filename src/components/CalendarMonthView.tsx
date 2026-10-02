@@ -44,16 +44,14 @@ export const CalendarMonthView: React.FC<CalendarMonthViewProps> = ({
       className="relative bg-[#1F1F1F] border border-[#5C464B]/60 rounded-2xl sm:rounded-3xl overflow-hidden shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9)] transition-all duration-300" 
       id="calendar-month-container"
     >
-      {/* Weekday Header Row - with responsive sparkle stars */}
-      <div className="relative z-10 grid grid-cols-7 border-b border-[#5C464B]/50 bg-[#1F1F1F] text-center py-2 sm:py-3 px-1 sm:px-2">
-        {WEEKDAYS.map((day, idx) => (
+      {/* Weekday Header Row - styled with #3D2C30 background */}
+      <div className="relative z-10 grid grid-cols-7 border-b border-[#5C464B]/50 bg-[#3D2C30] text-center py-2 sm:py-3 px-1 sm:px-2">
+        {WEEKDAYS.map((day) => (
           <div 
             key={day} 
-            className="flex items-center justify-center gap-1 text-[10px] sm:text-xs uppercase tracking-normal sm:tracking-widest font-extrabold text-[#E5A0B6]"
+            className="flex items-center justify-center text-[10px] sm:text-xs uppercase tracking-normal sm:tracking-widest font-extrabold text-[#E5A0B6]"
           >
-            {idx === 0 && <span className="text-[#FF688B] text-xs sm:text-sm hidden sm:inline">✦</span>}
             <span>{day}</span>
-            {idx === 6 && <span className="text-[#FF688B] text-xs sm:text-sm hidden sm:inline">✦</span>}
           </div>
         ))}
       </div>

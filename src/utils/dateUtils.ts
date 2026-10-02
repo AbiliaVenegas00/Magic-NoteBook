@@ -14,8 +14,50 @@ export function formatDateToISO(date: Date): string {
 }
 
 export function parseISODate(dateStr: string): Date {
-  const [year, month, day] = dateStr.split('-').map(Number);
+  const normalized = normalizeDateStr(dateStr);
+  const [year, month, day] = normalized.split('-').map(Number);
   return new Date(year, month - 1, day);
+}
+
+export function normalizeDateStr(dateStr?: string): string {
+  if (!dateStr || typeof dateStr !== 'string') return getTodayDateString();
+  const trimmed = dateStr.trim();
+  // Standard ISO date YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return trimmed;
+  }
+  // If it contains timestamp YYYY-MM-DDTHH:mm:ss
+  if (trimmed.includes('T')) {
+    const part = trimmed.split('T')[0];
+    if (/^\d{4}-\d{2}-\d{2}$/.test(part)) return part;
+  }
+  // If format like YYYY-M-D
+  const parts = trimmed.split(/[-/]/);
+  if (parts.length === 3 && parts[0].length === 4) {
+    return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+  }
+  const parsed = new Date(trimmed);
+  if (!isNaN(parsed.getTime())) {
+    return formatDateToISO(parsed);
+  }
+  return getTodayDateString();
+}
+
+export function formatSpanishDate(dateStr: string): string {
+  if (!dateStr) return '';
+  const normalized = normalizeDateStr(dateStr);
+  const today = getTodayDateString();
+  if (normalized === today) return 'Hoy';
+  const tomorrow = addDays(today, 1);
+  if (normalized === tomorrow) return 'Mañana';
+  const yesterday = addDays(today, -1);
+  if (normalized === yesterday) return 'Ayer';
+
+  const date = parseISODate(normalized);
+  return date.toLocaleDateString('es-ES', {
+    day: 'numeric',
+    month: 'short',
+  });
 }
 
 export function formatHumanDate(dateStr: string): string {

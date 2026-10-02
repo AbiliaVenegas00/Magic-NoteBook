@@ -50,7 +50,7 @@ import {
   updateGoogleCalendarEvent,
   deleteGoogleCalendarEvent
 } from './lib/googleCalendarSync';
-import { isOverdue, isDueToday, formatDateToISO, parseISODate } from './utils/dateUtils';
+import { isOverdue, isDueToday, formatDateToISO, parseISODate, getTodayDateString } from './utils/dateUtils';
 import { Header } from './components/Header';
 import { FilterBar } from './components/FilterBar';
 import { CalendarMonthView } from './components/CalendarMonthView';
@@ -466,6 +466,42 @@ export default function App() {
 
     if (user) {
       await syncTaskToFirestore(user.uid, updatedTask);
+    }
+  };
+
+  const handleRescheduleToToday = async (taskId: string) => {
+    const today = getTodayDateString();
+    const task = tasksRef.current.find((t) => t.id === taskId);
+    if (!task) return;
+
+    const updated = { ...task, dueDate: today };
+    setTasks((prev) => {
+      const next = prev.map((t) => (t.id === taskId ? updated : t));
+      saveTasksToStorage(next, user?.uid);
+      return next;
+    });
+
+    if (user) {
+      await syncTaskToFirestore(user.uid, updated);
+    }
+  };
+
+  const handleRescheduleAllToToday = async (taskIds: string[]) => {
+    const today = getTodayDateString();
+    const idSet = new Set(taskIds);
+    setTasks((prev) => {
+      const next = prev.map((t) => (idSet.has(t.id) ? { ...t, dueDate: today } : t));
+      saveTasksToStorage(next, user?.uid);
+      return next;
+    });
+
+    if (user) {
+      for (const id of taskIds) {
+        const t = tasksRef.current.find((x) => x.id === id);
+        if (t) {
+          await syncTaskToFirestore(user.uid, { ...t, dueDate: today });
+        }
+      }
     }
   };
 
@@ -893,6 +929,8 @@ export default function App() {
                 onCreateTaskForDay={(dateStr) => {
                   openCreateTask({ date: dateStr });
                 }}
+                onRescheduleAllToToday={handleRescheduleAllToToday}
+                onSwitchToBoard={() => setViewMode('board')}
               />
             )}
 
@@ -926,9 +964,16 @@ export default function App() {
                 onSelectTask={openEditTask}
                 onToggleTaskComplete={handleToggleTaskComplete}
                 onUpdateTaskStatus={handleUpdateTaskStatus}
-                onOpenCreateTask={(status) => {
+                onCreateTaskWithStatus={(status) => {
                   openCreateTask({ status });
                 }}
+                currentDate={currentDate}
+                onDeleteTask={handleDeleteTask}
+                onNavigateToTaskDate={(dateStr) => {
+                  setCurrentDate(parseISODate(dateStr));
+                  setViewMode('month');
+                }}
+                onRescheduleToToday={handleRescheduleToToday}
               />
             )}
           </>
