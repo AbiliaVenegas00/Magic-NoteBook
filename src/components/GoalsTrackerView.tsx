@@ -465,6 +465,13 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
             const isFinished = totalTasks > 0 && completedTasks === totalTasks && (!goal.targetCount || completedTasks >= goal.targetCount);
             const timeInfo = calculateTimeRemaining(goal, isFinished);
 
+            const targetTotal = goal.targetCount && goal.targetCount > 0 
+              ? goal.targetCount 
+              : (totalTasks > 0 ? totalTasks : 1);
+            const progressPercent = isFinished 
+              ? 100 
+              : (totalTasks === 0 ? 0 : Math.min(100, Math.round((completedTasks / targetTotal) * 100)));
+
             // Filter tasks based on view filter
             const visibleTasks = goal.tasks.filter((t) => {
               if (taskFilter === 'pending') return !t.completed;
@@ -554,20 +561,20 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
                       </div>
                     </div>
 
-                    {/* Remaining Time Buffer Bar (with #FF688B progress accent) */}
-                    <div className="w-full h-1.5 bg-black/40 rounded-full overflow-hidden mb-1.5">
+                    {/* Task Completion Progress Bar with Vibrant Neon Glow */}
+                    <div className="w-full h-2 bg-black/60 rounded-full overflow-hidden mb-1.5 p-[1px] border border-[#5C464B]/50 shadow-inner">
                       <div 
-                        className={`h-full rounded-full transition-all duration-300 ${
+                        className={`h-full rounded-full transition-all duration-500 ease-out relative ${
                           isFinished
-                            ? 'bg-emerald-400'
-                            : timeInfo.urgency === 'overdue'
-                            ? 'bg-rose-500'
-                            : timeInfo.urgency === 'soon'
-                            ? 'bg-amber-400'
-                            : 'bg-[#FF688B]'
+                            ? 'bg-gradient-to-r from-emerald-500 via-emerald-400 to-teal-300 shadow-[0_0_12px_rgba(52,211,153,0.95),0_0_22px_rgba(52,211,153,0.55)]'
+                            : 'bg-gradient-to-r from-[#FF2E63] via-[#FF688B] to-[#FFA8BC] shadow-[0_0_12px_rgba(255,104,139,0.95),0_0_22px_rgba(255,104,139,0.6)]'
                         }`}
-                        style={{ width: `${isFinished ? 100 : timeInfo.percentRemaining}%` }}
-                      />
+                        style={{ width: `${progressPercent}%` }}
+                      >
+                        {progressPercent > 0 && (
+                          <div className="absolute inset-0 bg-gradient-to-b from-white/40 to-transparent rounded-full pointer-events-none" />
+                        )}
+                      </div>
                     </div>
 
                     {/* Clean Date Limit Footer */}
