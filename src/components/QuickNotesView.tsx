@@ -309,7 +309,6 @@ export const QuickNotesView: React.FC<QuickNotesViewProps> = ({
 
   // Search filter
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedColorFilter, setSelectedColorFilter] = useState<string>('all');
 
   // Edit Modal State
   const [editingNote, setEditingNote] = useState<QuickNote | null>(null);
@@ -398,12 +397,9 @@ export const QuickNotesView: React.FC<QuickNotesViewProps> = ({
   // Filtered notes
   const filteredNotes = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
-    return notes.filter((n) => {
-      const matchSearch = !q || n.title.toLowerCase().includes(q) || n.content.toLowerCase().includes(q);
-      const matchColor = selectedColorFilter === 'all' || n.color === selectedColorFilter;
-      return matchSearch && matchColor;
-    });
-  }, [notes, searchQuery, selectedColorFilter]);
+    if (!q) return notes;
+    return notes.filter((n) => n.title.toLowerCase().includes(q) || n.content.toLowerCase().includes(q));
+  }, [notes, searchQuery]);
 
   const pinnedNotes = useMemo(() => filteredNotes.filter((n) => n.isPinned), [filteredNotes]);
   const otherNotes = useMemo(() => filteredNotes.filter((n) => !n.isPinned), [filteredNotes]);
@@ -449,31 +445,6 @@ export const QuickNotesView: React.FC<QuickNotesViewProps> = ({
                   <X className="w-3 h-3" />
                 </button>
               )}
-            </div>
-
-            {/* Filter by color */}
-            <div className="flex items-center gap-1 bg-[#3D2C30] border border-[#5C464B] p-1 rounded-full">
-              <button
-                onClick={() => setSelectedColorFilter('all')}
-                className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold transition-all ${
-                  selectedColorFilter === 'all'
-                    ? 'bg-[#FF688B] text-white shadow-xs'
-                    : 'text-[#FFD1DB]/70 hover:text-white'
-                }`}
-              >
-                Todas
-              </button>
-              {NOTE_COLORS.slice(0, 4).map((c) => (
-                <button
-                  key={c.hex}
-                  onClick={() => setSelectedColorFilter(selectedColorFilter === c.hex ? 'all' : c.hex)}
-                  className={`w-3.5 h-3.5 rounded-full transition-all ${
-                    selectedColorFilter === c.hex ? 'ring-2 ring-white scale-110' : 'opacity-60 hover:opacity-100'
-                  }`}
-                  style={{ backgroundColor: c.hex }}
-                  title={`Filtrar por ${c.label}`}
-                />
-              ))}
             </div>
 
             <button

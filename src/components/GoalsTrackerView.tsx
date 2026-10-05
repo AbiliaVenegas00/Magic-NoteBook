@@ -373,17 +373,6 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
     }
   };
 
-  // Find nearest remaining time among unfinished goals
-  const unfinishedGoals = goals.filter((g) => {
-    const total = g.tasks.length;
-    const completed = g.tasks.filter((t) => t.completed).length;
-    return total === 0 || completed < total;
-  });
-
-  const nearestGoalTime = unfinishedGoals.length > 0 
-    ? calculateTimeRemaining(unfinishedGoals[0], false)
-    : null;
-
   return (
     <div className="space-y-5" id="goals-tracker-view">
       
@@ -436,19 +425,6 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
               </button>
             </div>
 
-            {/* Overall Remaining Time Pill */}
-            {nearestGoalTime && (
-              <div className={`flex items-center gap-1.5 border px-3 py-1.5 rounded-full shadow-xs text-xs font-mono font-bold ${
-                nearestGoalTime.urgency === 'overdue'
-                  ? 'bg-rose-500/15 border-rose-500/30 text-rose-300'
-                  : nearestGoalTime.urgency === 'soon'
-                  ? 'bg-amber-500/15 border-amber-500/30 text-amber-300'
-                  : 'bg-[#3D2C30] border-[#5C464B] text-[#FFD1DB]'
-              }`}>
-                <Clock className="w-3.5 h-3.5 text-[#FF688B]" />
-                <span>{nearestGoalTime.label}</span>
-              </div>
-            )}
 
             <button
               onClick={handleOpenModal}
