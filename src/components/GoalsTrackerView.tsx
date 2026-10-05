@@ -614,8 +614,8 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
                     </button>
                   </form>
 
-                  {/* Task List with Drag and Drop Reordering */}
-                  <div className="space-y-1.5 max-h-[340px] overflow-y-auto pr-1">
+                  {/* Task List with Drag and Drop Reordering (freely expands without scroll) */}
+                  <div className="space-y-1.5">
                     {visibleTasks.length === 0 ? (
                       <div className="py-5 text-center border border-dashed border-[#5C464B]/40 rounded-xl text-xs text-white/40">
                         {goal.tasks.length === 0 ? 'Sin tareas. Añade una arriba.' : 'No hay tareas en este filtro.'}
