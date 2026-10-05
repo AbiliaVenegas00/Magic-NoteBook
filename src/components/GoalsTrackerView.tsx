@@ -10,7 +10,7 @@ import {
   ListPlus,
   Clock,
   GripVertical,
-  ArrowUpDown
+  Pencil
 } from 'lucide-react';
 import { Goal, GoalTask, PriorityLevel, GoalPriority } from '../types';
 
@@ -167,7 +167,11 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
 }) => {
   const [localCreateModalOpen, setLocalCreateModalOpen] = useState(false);
   const [newGoalTitle, setNewGoalTitle] = useState('');
-  const [newGoalDays, setNewGoalDays] = useState(30);
+  const [newGoalDate, setNewGoalDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().slice(0, 10);
+  });
   const [newGoalTargetCount, setNewGoalTargetCount] = useState<number>(20);
   const [newGoalColor, setNewGoalColor] = useState('#FF99AA');
 
@@ -191,6 +195,45 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
   // Confirmation modal to reliably delete goal without blocked window.confirm
   const [goalToDelete, setGoalToDelete] = useState<Goal | null>(null);
 
+  // Edit Goal modal state
+  const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
+  const [editGoalTitle, setEditGoalTitle] = useState('');
+  const [editGoalDate, setEditGoalDate] = useState('');
+  const [editGoalTargetCount, setEditGoalTargetCount] = useState<number>(20);
+  const [editGoalColor, setEditGoalColor] = useState('#FF99AA');
+
+  const handleOpenEditGoal = (goal: Goal) => {
+    setEditingGoal(goal);
+    setEditGoalTitle(goal.title);
+    setEditGoalDate(goal.targetDate || '');
+    setEditGoalTargetCount(goal.targetCount || 20);
+    setEditGoalColor(goal.color || '#FF99AA');
+  };
+
+  const handleSaveEditGoal = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingGoal || !editGoalTitle.trim()) return;
+
+    let calculatedDays = editingGoal.targetDays;
+    if (editGoalDate) {
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      const [y, m, d] = editGoalDate.split('-').map(Number);
+      const targetTimestamp = new Date(y, m - 1, d).getTime();
+      calculatedDays = Math.max(1, Math.round((targetTimestamp - todayStart) / (24 * 60 * 60 * 1000)));
+    }
+
+    onUpdateGoal(editingGoal.id, {
+      title: editGoalTitle.trim(),
+      targetDate: editGoalDate || undefined,
+      targetDays: calculatedDays,
+      targetCount: editGoalTargetCount > 0 ? editGoalTargetCount : undefined,
+      color: editGoalColor,
+    });
+
+    setEditingGoal(null);
+  };
+
   const showCreateModal = isCreateGoalModalOpen || localCreateModalOpen;
 
   const handleOpenModal = () => {
@@ -212,11 +255,24 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
     e.preventDefault();
     if (!newGoalTitle.trim()) return;
 
-    const targetDate = new Date(Date.now() + (newGoalDays || 30) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const defaultDate = () => {
+      const d = new Date();
+      d.setDate(d.getDate() + 30);
+      return d.toISOString().slice(0, 10);
+    };
+
+    const targetDate = newGoalDate || defaultDate();
+
+    // Calculate days between today and the targetDate
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const [y, m, d] = targetDate.split('-').map(Number);
+    const targetTimestamp = new Date(y, m - 1, d).getTime();
+    const calculatedDays = Math.max(1, Math.round((targetTimestamp - todayStart) / (24 * 60 * 60 * 1000)));
 
     onAddGoal({
       title: newGoalTitle.trim(),
-      targetDays: newGoalDays || 30,
+      targetDays: calculatedDays,
       targetDate,
       targetCount: newGoalTargetCount > 0 ? newGoalTargetCount : undefined,
       color: newGoalColor,
@@ -224,7 +280,7 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
     });
 
     setNewGoalTitle('');
-    setNewGoalDays(30);
+    setNewGoalDate(defaultDate());
     setNewGoalTargetCount(20);
     handleCloseModal();
   };
@@ -468,11 +524,12 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
 
                     <div className="flex items-center gap-1 shrink-0">
                       <button
-                        onClick={() => handleSortByColor(goal)}
-                        className="p-1.5 rounded-xl text-[#FFD1DB]/60 hover:text-white hover:bg-white/10 transition-all"
-                        title="Ordenar automáticamente por color de prioridad (Rojo → Amarillo → Verde)"
+                        onClick={() => handleOpenEditGoal(goal)}
+                        className="px-2 py-1 rounded-xl text-[#FFD1DB]/75 hover:text-white hover:bg-white/10 transition-all flex items-center gap-1 text-xs font-semibold"
+                        title="Editar meta"
                       >
-                        <ArrowUpDown className="w-3.5 h-3.5 text-[#FF688B]" />
+                        <Pencil className="w-3 h-3 text-[#FF688B]" />
+                        <span>Editar</span>
                       </button>
 
                       <button
@@ -760,19 +817,16 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
                   <label className="block text-[11px] font-bold text-[#FFE8EF]/90 uppercase tracking-wider mb-1">
-                    Duración (Días)
+                    Fecha límite *
                   </label>
-                  <select
-                    value={newGoalDays}
-                    onChange={(e) => setNewGoalDays(Number(e.target.value))}
-                    className="w-full px-2.5 py-1.5 bg-[#1F1F1F] border border-[#5C464B]/50 rounded-xl text-xs text-white focus:outline-hidden focus:border-[#FF688B] font-mono"
-                  >
-                    <option value={7}>7 días</option>
-                    <option value={15}>15 días</option>
-                    <option value={30}>30 días</option>
-                    <option value={60}>60 días</option>
-                    <option value={90}>90 días</option>
-                  </select>
+                  <input
+                    type="date"
+                    required
+                    value={newGoalDate}
+                    onChange={(e) => setNewGoalDate(e.target.value)}
+                    min={new Date().toISOString().slice(0, 10)}
+                    className="w-full px-2.5 py-1.5 bg-[#1F1F1F] border border-[#5C464B]/50 rounded-xl text-xs text-white focus:outline-hidden focus:border-[#FF688B] font-mono [color-scheme:dark]"
+                  />
                 </div>
 
                 <div>
@@ -902,6 +956,116 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
                   className="px-4 py-1.5 text-xs font-extrabold bg-[#FF688B] hover:bg-[#ff7a9b] text-white disabled:opacity-40 disabled:pointer-events-none rounded-full transition-all shadow-md shadow-[#FF688B]/30"
                 >
                   Añadir Tareas
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Goal Modal */}
+      {editingGoal && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150"
+          onClick={() => setEditingGoal(null)}
+        >
+          <div
+            className="relative bg-[#242424] border border-[#5C464B]/60 rounded-2xl sm:rounded-3xl shadow-[0_30px_90px_rgba(0,0,0,0.95)] w-full max-w-sm max-h-[92dvh] flex flex-col overflow-hidden text-[#FFE8EF]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 sm:p-5 border-b border-[#5C464B]/40">
+              <div className="flex items-center gap-2 text-[#FF688B]">
+                <Target className="w-4 h-4" />
+                <h3 className="text-sm font-extrabold text-white">Editar Meta</h3>
+              </div>
+              <button
+                onClick={() => setEditingGoal(null)}
+                className="p-1.5 rounded-full text-white/50 hover:text-white hover:bg-white/10 transition-colors"
+                title="Cerrar"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditGoal} className="p-5 space-y-3.5 text-xs overflow-y-auto overscroll-contain">
+              <div>
+                <label className="block text-[11px] font-bold text-[#FFE8EF]/90 uppercase tracking-wider mb-1">
+                  Título de la Meta *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editGoalTitle}
+                  onChange={(e) => setEditGoalTitle(e.target.value)}
+                  placeholder="Título de la meta"
+                  className="w-full px-3.5 py-2 bg-[#1F1F1F] border border-[#5C464B]/50 rounded-xl focus:outline-hidden focus:border-[#FF688B] text-xs text-white placeholder-white/40 font-semibold"
+                  autoFocus
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-[11px] font-bold text-[#FFE8EF]/90 uppercase tracking-wider mb-1">
+                    Fecha límite *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={editGoalDate}
+                    onChange={(e) => setEditGoalDate(e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-[#1F1F1F] border border-[#5C464B]/50 rounded-xl text-xs text-white focus:outline-hidden focus:border-[#FF688B] font-mono [color-scheme:dark]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-[#FFE8EF]/90 uppercase tracking-wider mb-1">
+                    Número de tareas
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={editGoalTargetCount}
+                    onChange={(e) => setEditGoalTargetCount(Number(e.target.value))}
+                    placeholder="20"
+                    className="w-full px-2.5 py-1.5 bg-[#1F1F1F] border border-[#5C464B]/50 rounded-xl text-xs text-white focus:outline-hidden focus:border-[#FF688B] font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-[#FFE8EF]/90 uppercase tracking-wider mb-1">
+                  Color
+                </label>
+                <div className="flex items-center gap-2 pt-0.5">
+                  {['#FFD1DB', '#FF688B', '#E5A0B6', '#C18C98', '#A855F7'].map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setEditGoalColor(c)}
+                      className={`w-5 h-5 rounded-full border transition-all ${
+                        editGoalColor === c ? 'ring-2 ring-white scale-110' : 'opacity-70 hover:opacity-100'
+                      }`}
+                      style={{ backgroundColor: c, borderColor: 'rgba(255,255,255,0.3)' }}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-[#5C464B]/40 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingGoal(null)}
+                  className="px-3.5 py-1.5 text-xs font-semibold text-white/75 hover:text-white rounded-full hover:bg-white/10 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={!editGoalTitle.trim()}
+                  className="px-4 py-1.5 text-xs font-extrabold bg-[#FF688B] hover:bg-[#ff7a9b] text-white disabled:opacity-40 disabled:pointer-events-none rounded-full transition-all shadow-md shadow-[#FF688B]/30"
+                >
+                  Guardar Cambios
                 </button>
               </div>
             </form>
