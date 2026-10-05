@@ -9,6 +9,50 @@ const NOTES_KEY = 'minimal_personal_notes_v1';
 const LEGACY_TASKS_KEYS = ['assignment_crm_tasks_v1'];
 const LEGACY_CONTACTS_KEYS = ['assignment_crm_contacts_v1'];
 
+// Immediately clean up any residual sample data from previous versions in browser localStorage
+try {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    ['minimal_personal_notes_v1_guest', 'minimal_personal_notes_v1'].forEach((k) => {
+      const raw = localStorage.getItem(k);
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            const cleaned = parsed.filter((n: any) => !n.id?.startsWith('note-welcome-'));
+            localStorage.setItem(k, JSON.stringify(cleaned));
+          }
+        } catch {}
+      }
+    });
+
+    ['minimal_personal_goals_v1_guest', 'minimal_personal_goals_v1'].forEach((k) => {
+      const raw = localStorage.getItem(k);
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            const cleaned = parsed.filter((g: any) => g.id !== 'goal-30-days-challenge');
+            localStorage.setItem(k, JSON.stringify(cleaned));
+          }
+        } catch {}
+      }
+    });
+
+    ['minimal_personal_plans_v1_guest', 'minimal_personal_plans_v1'].forEach((k) => {
+      const raw = localStorage.getItem(k);
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            const cleaned = parsed.filter((t: any) => !t.id?.startsWith('task-') && !t.id?.startsWith('mock-') && !t.id?.startsWith('gt-'));
+            localStorage.setItem(k, JSON.stringify(cleaned));
+          }
+        } catch {}
+      }
+    });
+  }
+} catch {}
+
 function getStorageKey(baseKey: string, userId?: string | null): string {
   if (userId) {
     return `${baseKey}_user_${userId}`;
@@ -16,44 +60,9 @@ function getStorageKey(baseKey: string, userId?: string | null): string {
   return `${baseKey}_guest`;
 }
 
-const DEFAULT_SAMPLE_NOTES: QuickNote[] = [
-  {
-    id: 'note-welcome-1',
-    title: '💡 Ideas para esta semana',
-    content: '==Prioridad clave==: Presentar el nuevo prototipo.\n\n- [x] Diseñar el boceto de la nueva propuesta\n- [ ] Comprar café en grano y té de jazmín\n- [ ] Programar **revisión final** para el viernes',
-    color: '#FF99AA',
-    isPinned: true,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'note-welcome-2',
-    title: '📌 Recordatorio rápido',
-    content: 'Revisar la suscripción antes de fin de mes y hacer respaldo del proyecto. Recuerda que la entrega es el ==28 de octubre==.',
-    color: '#EAB308',
-    isPinned: false,
-    createdAt: new Date(Date.now() - 3600000).toISOString(),
-  },
-];
+const DEFAULT_SAMPLE_NOTES: QuickNote[] = [];
 
-const DEFAULT_SAMPLE_GOALS: Goal[] = [
-  {
-    id: 'goal-30-days-challenge',
-    title: '20 cosas en los próximos 30 días',
-    targetDays: 30,
-    targetCount: 20,
-    targetDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-    createdAt: new Date().toISOString(),
-    color: '#FF99AA',
-    tasks: [
-      { id: 'gt-1', title: 'Caminar o hacer 30 minutos de ejercicio diario', completed: true, completedAt: new Date().toISOString(), priority: 'urgent_important' },
-      { id: 'gt-2', title: 'Leer 1 libro de desarrollo o habilidad profesional', completed: true, completedAt: new Date().toISOString(), priority: 'urgent_important' },
-      { id: 'gt-3', title: 'Organizar y limpiar el espacio de trabajo digital y físico', completed: false, priority: 'important' },
-      { id: 'gt-4', title: 'Tomar 2 litros de agua diarios', completed: false, priority: 'important' },
-      { id: 'gt-5', title: 'Completar revisión de metas y presupuesto financiero', completed: false, priority: 'urgent' },
-      { id: 'gt-6', title: 'Aprender un nuevo concepto o herramienta técnica', completed: false, priority: 'routine' },
-    ],
-  },
-];
+const DEFAULT_SAMPLE_GOALS: Goal[] = [];
 
 export function loadGoalsFromStorage(userId?: string | null): Goal[] {
   try {
@@ -66,31 +75,34 @@ export function loadGoalsFromStorage(userId?: string | null): Goal[] {
         try {
           const parsedLegacy = JSON.parse(legacyRaw);
           if (Array.isArray(parsedLegacy) && parsedLegacy.length > 0) {
-            saveGoalsToStorage(parsedLegacy, userId);
-            return parsedLegacy;
+            const filtered = parsedLegacy.filter((g: Goal) => g.id !== 'goal-30-days-challenge');
+            saveGoalsToStorage(filtered, userId);
+            return filtered;
           }
         } catch {}
       }
-      return DEFAULT_SAMPLE_GOALS;
+      return [];
     }
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      return parsed.map((g: Goal) => {
-        const cleanedTasks = (g.tasks || []).map((t, idx) => ({
-          ...t,
-          priority: t.priority || (idx % 4 === 0 ? 'urgent_important' : idx % 4 === 1 ? 'important' : idx % 4 === 2 ? 'urgent' : 'routine'),
-        }));
-        if (g.description) {
-          const { description, ...rest } = g;
-          return { ...rest, tasks: cleanedTasks };
-        }
-        return { ...g, tasks: cleanedTasks };
-      });
+      return parsed
+        .filter((g: Goal) => g.id !== 'goal-30-days-challenge')
+        .map((g: Goal) => {
+          const cleanedTasks = (g.tasks || []).map((t, idx) => ({
+            ...t,
+            priority: t.priority || (idx % 4 === 0 ? 'urgent_important' : idx % 4 === 1 ? 'important' : idx % 4 === 2 ? 'urgent' : 'routine'),
+          }));
+          if (g.description) {
+            const { description, ...rest } = g;
+            return { ...rest, tasks: cleanedTasks };
+          }
+          return { ...g, tasks: cleanedTasks };
+        });
     }
-    return DEFAULT_SAMPLE_GOALS;
+    return [];
   } catch (err) {
     console.error('Failed to parse goals from storage', err);
-    return DEFAULT_SAMPLE_GOALS;
+    return [];
   }
 }
 
@@ -198,18 +210,22 @@ export function loadNotesFromStorage(userId?: string | null): QuickNote[] {
         try {
           const parsedLegacy = JSON.parse(legacyRaw);
           if (Array.isArray(parsedLegacy) && parsedLegacy.length > 0) {
-            saveNotesToStorage(parsedLegacy, userId);
-            return parsedLegacy;
+            const filtered = parsedLegacy.filter((n: QuickNote) => !n.id.startsWith('note-welcome-'));
+            saveNotesToStorage(filtered, userId);
+            return filtered;
           }
         } catch {}
       }
-      return DEFAULT_SAMPLE_NOTES;
+      return [];
     }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : DEFAULT_SAMPLE_NOTES;
+    if (Array.isArray(parsed)) {
+      return parsed.filter((n: QuickNote) => !n.id.startsWith('note-welcome-'));
+    }
+    return [];
   } catch (err) {
     console.error('Failed to parse notes from storage', err);
-    return DEFAULT_SAMPLE_NOTES;
+    return [];
   }
 }
 
