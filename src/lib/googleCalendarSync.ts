@@ -210,30 +210,46 @@ export async function syncPlansWithGoogleCalendar(
       continue;
     }
 
-    // Check if we already have this event by ID
-    const existing = googleEventIdMap.get(gEvent.id);
-    if (!existing) {
-      // Determine date and time
-      let dueDate = '';
-      let dueTime: string | undefined = undefined;
-      let durationMinutes = 60;
+    // Determine date and time
+    let dueDate = '';
+    let dueTime: string | undefined = undefined;
+    let durationMinutes = 60;
 
-      if (gEvent.start?.dateTime) {
-        const startDate = new Date(gEvent.start.dateTime);
-        dueDate = startDate.toISOString().slice(0, 10);
-        dueTime = `${String(startDate.getHours()).padStart(2, '0')}:${String(startDate.getMinutes()).padStart(2, '0')}`;
+    if (gEvent.start?.dateTime) {
+      const startDate = new Date(gEvent.start.dateTime);
+      dueDate = startDate.toISOString().slice(0, 10);
+      dueTime = `${String(startDate.getHours()).padStart(2, '0')}:${String(startDate.getMinutes()).padStart(2, '0')}`;
 
-        if (gEvent.end?.dateTime) {
-          const endDate = new Date(gEvent.end.dateTime);
-          const diffMs = endDate.getTime() - startDate.getTime();
-          if (diffMs > 0) {
-            durationMinutes = Math.round(diffMs / (60 * 1000));
-          }
+      if (gEvent.end?.dateTime) {
+        const endDate = new Date(gEvent.end.dateTime);
+        const diffMs = endDate.getTime() - startDate.getTime();
+        if (diffMs > 0) {
+          durationMinutes = Math.round(diffMs / (60 * 1000));
         }
-      } else if (gEvent.start?.date) {
-        dueDate = gEvent.start.date;
       }
+    } else if (gEvent.start?.date) {
+      dueDate = gEvent.start.date;
+    }
 
+    // Check if we already have this event by ID
+    let existing = googleEventIdMap.get(gEvent.id);
+
+    // If not found by googleEventId, check if a matching task already exists with same title, date and time
+    if (!existing && dueDate) {
+      const normSummary = gEvent.summary.trim().toLowerCase();
+      existing = updatedTasks.find((t) => 
+        t.title.trim().toLowerCase() === normSummary &&
+        t.dueDate === dueDate &&
+        (t.dueTime || '') === (dueTime || '')
+      );
+      if (existing) {
+        existing.googleEventId = gEvent.id;
+        existing.syncedWithGoogle = true;
+        googleEventIdMap.set(gEvent.id, existing);
+      }
+    }
+
+    if (!existing) {
       if (dueDate) {
         const newTask: AssignmentTask = {
           id: `task-gcal-${gEvent.id}`,

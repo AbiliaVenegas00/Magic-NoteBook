@@ -18,7 +18,10 @@ import {
   List,
   CheckSquare,
   Eye,
-  FileCode
+  FileCode,
+  Maximize2,
+  Minimize2,
+  RotateCcw
 } from 'lucide-react';
 import { QuickNote } from '../types';
 
@@ -303,6 +306,144 @@ export const QuickNotesView: React.FC<QuickNotesViewProps> = ({
   const [newContent, setNewContent] = useState('');
   const [newColor, setNewColor] = useState(NOTE_COLORS[0].hex);
   const [newIsPinned, setNewIsPinned] = useState(false);
+  const [isComposerMaximized, setIsComposerMaximized] = useState(false);
+
+  // Dynamic box size for note composer (persists in localStorage so user's desired size is remembered)
+  const [composerSize, setComposerSize] = useState<{ width: number; height: number }>(() => {
+    try {
+      const saved = localStorage.getItem('minimal_plan_note_composer_size');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (typeof parsed.width === 'number' && typeof parsed.height === 'number') {
+          return {
+            width: Math.max(380, Math.min(1500, parsed.width)),
+            height: Math.max(360, Math.min(1050, parsed.height)),
+          };
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return { width: 680, height: 560 };
+  });
+
+  // Dynamic box size for edit modal
+  const [editModalSize, setEditModalSize] = useState<{ width: number; height: number }>({
+    width: 680,
+    height: 560,
+  });
+
+  const composerBoxRef = useRef<HTMLDivElement>(null);
+  const editBoxRef = useRef<HTMLDivElement>(null);
+  const [isResizingBox, setIsResizingBox] = useState(false);
+  const isResizingBoxRef = useRef(false);
+  const justResizedRef = useRef(false);
+  const mouseDownBackdropRef = useRef<EventTarget | null>(null);
+
+  const startResize = (
+    e: React.MouseEvent,
+    direction: 'both' | 'horizontal' | 'vertical',
+    isEditing: boolean = false
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const boxEl = isEditing ? editBoxRef.current : composerBoxRef.current;
+    if (!boxEl) return;
+
+    isResizingBoxRef.current = true;
+    justResizedRef.current = true;
+    setIsResizingBox(true);
+
+    const rect = boxEl.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      moveEvent.preventDefault();
+      const maxWidth = Math.min(window.innerWidth * 0.96, 1500);
+      const maxHeight = Math.min(window.innerHeight * 0.94, 1100);
+
+      if (isEditing) {
+        setEditModalSize((prev) => {
+          let nextW = prev.width;
+          let nextH = prev.height;
+
+          if (direction === 'both' || direction === 'horizontal') {
+            const w = Math.round((moveEvent.clientX - centerX) * 2);
+            nextW = Math.max(380, Math.min(maxWidth, w));
+          }
+          if (direction === 'both' || direction === 'vertical') {
+            const h = Math.round((moveEvent.clientY - centerY) * 2);
+            nextH = Math.max(360, Math.min(maxHeight, h));
+          }
+          return { width: nextW, height: nextH };
+        });
+      } else {
+        setComposerSize((prev) => {
+          let nextW = prev.width;
+          let nextH = prev.height;
+
+          if (direction === 'both' || direction === 'horizontal') {
+            const w = Math.round((moveEvent.clientX - centerX) * 2);
+            nextW = Math.max(380, Math.min(maxWidth, w));
+          }
+          if (direction === 'both' || direction === 'vertical') {
+            const h = Math.round((moveEvent.clientY - centerY) * 2);
+            nextH = Math.max(360, Math.min(maxHeight, h));
+          }
+          const updated = { width: nextW, height: nextH };
+          try {
+            localStorage.setItem('minimal_plan_note_composer_size', JSON.stringify(updated));
+          } catch {
+            // ignore
+          }
+          return updated;
+        });
+      }
+    };
+
+    const onClickCapture = (clickEvent: MouseEvent) => {
+      clickEvent.preventDefault();
+      clickEvent.stopPropagation();
+      window.removeEventListener('click', onClickCapture, true);
+    };
+
+    const onMouseUp = (upEvent: MouseEvent) => {
+      upEvent.preventDefault();
+      upEvent.stopPropagation();
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp, true);
+
+      // Swallow any click event that fires right after mouse release
+      window.addEventListener('click', onClickCapture, true);
+      setTimeout(() => {
+        window.removeEventListener('click', onClickCapture, true);
+      }, 350);
+
+      isResizingBoxRef.current = false;
+      setIsResizingBox(false);
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+
+      justResizedRef.current = true;
+      setTimeout(() => {
+        justResizedRef.current = false;
+      }, 400);
+    };
+
+    document.body.style.userSelect = 'none';
+    if (direction === 'both') {
+      document.body.style.cursor = 'nwse-resize';
+    } else if (direction === 'horizontal') {
+      document.body.style.cursor = 'ew-resize';
+    } else {
+      document.body.style.cursor = 'ns-resize';
+    }
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp, true);
+  };
 
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -317,6 +458,7 @@ export const QuickNotesView: React.FC<QuickNotesViewProps> = ({
   const [editContent, setEditContent] = useState('');
   const [editColor, setEditColor] = useState('');
   const [editIsPinned, setEditIsPinned] = useState(false);
+  const [isEditMaximized, setIsEditMaximized] = useState(false);
 
   // Copy feedback state (map noteId -> boolean)
   const [copiedNoteId, setCopiedNoteId] = useState<string | null>(null);
@@ -538,42 +680,154 @@ export const QuickNotesView: React.FC<QuickNotesViewProps> = ({
       {/* Create Note Modal with Full Styling and Remarcar Tools */}
       {isComposerOpen && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150"
-          onClick={() => {
-            setIsComposerOpen(false);
-            setNewTitle('');
-            setNewContent('');
+          className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150"
+          onMouseDown={(e) => {
+            mouseDownBackdropRef.current = e.target;
+          }}
+          onClick={(e) => {
+            if (justResizedRef.current || isResizingBoxRef.current || isResizingBox) {
+              justResizedRef.current = false;
+              return;
+            }
+            if (mouseDownBackdropRef.current === e.currentTarget && e.target === e.currentTarget) {
+              setIsComposerOpen(false);
+              setNewTitle('');
+              setNewContent('');
+              setIsComposerMaximized(false);
+            }
           }}
         >
           <div
-            className="relative bg-[#242424] border border-[#5C464B]/60 rounded-2xl sm:rounded-3xl shadow-[0_30px_90px_rgba(0,0,0,0.95)] w-full max-w-lg max-h-[92dvh] flex flex-col overflow-hidden text-[#FFE8EF]"
+            ref={composerBoxRef}
+            onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
+            className={`relative bg-[#242424] border border-[#5C464B]/60 rounded-2xl sm:rounded-3xl shadow-[0_30px_90px_rgba(0,0,0,0.95)] flex flex-col text-[#FFE8EF] ${
+              isComposerMaximized
+                ? 'w-[96vw] h-[92dvh] rounded-2xl'
+                : 'w-[96vw] max-w-[96vw] max-h-[92dvh]'
+            } ${isResizingBox ? 'select-none transition-none' : 'transition-all duration-150'}`}
+            style={
+              isComposerMaximized
+                ? { width: '96vw', height: '92dvh' }
+                : {
+                    width: `min(96vw, ${composerSize.width}px)`,
+                    height: `min(92dvh, ${composerSize.height}px)`,
+                    minWidth: '360px',
+                    minHeight: '380px',
+                    maxWidth: '96vw',
+                    maxHeight: '92dvh',
+                  }
+            }
           >
+            {/* Top Color Accent Line */}
             <div 
               className="h-1.5 w-full transition-colors shrink-0" 
               style={{ backgroundColor: newColor }} 
             />
 
-            <div className="px-5 py-3.5 border-b border-[#5C464B]/40 bg-[#1F1F1F] flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2">
-                <StickyNote className="w-4 h-4 text-[#FF688B]" />
-                <h3 className="text-sm font-extrabold text-white">Nueva Nota Rápida</h3>
+            {/* Modal Header */}
+            <div className="px-5 py-3 border-b border-[#5C464B]/40 bg-[#1F1F1F] flex items-center justify-between shrink-0 gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <StickyNote className="w-4 h-4 text-[#FF688B] shrink-0" />
+                <h3 className="text-sm font-extrabold text-white truncate">Nueva Nota Rápida</h3>
+                {!isComposerMaximized && (
+                  <span className="hidden md:inline-flex items-center text-[10px] font-semibold text-white/50 bg-white/5 px-2 py-0.5 rounded-full border border-white/10 shrink-0">
+                    {Math.round(composerSize.width)} × {Math.round(composerSize.height)} px
+                  </span>
+                )}
               </div>
-              <button
-                onClick={() => {
-                  setIsComposerOpen(false);
-                  setNewTitle('');
-                  setNewContent('');
-                }}
-                className="p-1 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-all"
-              >
-                <X className="w-4 h-4" />
-              </button>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                {/* Size Presets for Desktop */}
+                {!isComposerMaximized && (
+                  <div className="hidden sm:flex items-center gap-1 bg-black/40 border border-white/10 p-0.5 rounded-lg text-[10px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = { width: 560, height: 460 };
+                        setComposerSize(next);
+                        try { localStorage.setItem('minimal_plan_note_composer_size', JSON.stringify(next)); } catch {}
+                      }}
+                      className={`px-2 py-0.5 rounded-md transition-all ${
+                        composerSize.width <= 580 ? 'bg-white/20 text-white' : 'text-white/50 hover:text-white'
+                      }`}
+                      title="Tamaño compacto"
+                    >
+                      Compacto
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = { width: 680, height: 560 };
+                        setComposerSize(next);
+                        try { localStorage.setItem('minimal_plan_note_composer_size', JSON.stringify(next)); } catch {}
+                      }}
+                      className={`px-2 py-0.5 rounded-md transition-all ${
+                        composerSize.width > 580 && composerSize.width < 880 ? 'bg-white/20 text-white' : 'text-white/50 hover:text-white'
+                      }`}
+                      title="Tamaño estándar cómodo"
+                    >
+                      Estándar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = { width: 940, height: 680 };
+                        setComposerSize(next);
+                        try { localStorage.setItem('minimal_plan_note_composer_size', JSON.stringify(next)); } catch {}
+                      }}
+                      className={`px-2 py-0.5 rounded-md transition-all ${
+                        composerSize.width >= 880 ? 'bg-white/20 text-white' : 'text-white/50 hover:text-white'
+                      }`}
+                      title="Tamaño amplio"
+                    >
+                      Amplio
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = { width: 680, height: 560 };
+                        setComposerSize(next);
+                        try { localStorage.setItem('minimal_plan_note_composer_size', JSON.stringify(next)); } catch {}
+                      }}
+                      className="p-1 rounded-md text-white/40 hover:text-white hover:bg-white/10 transition-all"
+                      title="Restablecer tamaño predeterminado"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
+
+                {/* Maximize / Restore Button */}
+                <button
+                  type="button"
+                  onClick={() => setIsComposerMaximized(!isComposerMaximized)}
+                  className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-all hidden sm:flex items-center justify-center"
+                  title={isComposerMaximized ? "Restaurar tamaño personalizado" : "Pantalla completa"}
+                >
+                  {isComposerMaximized ? <Minimize2 className="w-4 h-4 text-[#FF688B]" /> : <Maximize2 className="w-4 h-4" />}
+                </button>
+
+                {/* Close Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsComposerOpen(false);
+                    setNewTitle('');
+                    setNewContent('');
+                    setIsComposerMaximized(false);
+                  }}
+                  className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-all"
+                  title="Cerrar"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
-            <form onSubmit={handleCreateNote} className="flex-1 flex flex-col min-h-0 overflow-hidden">
-              <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5 space-y-3.5 text-xs">
-                <div className="flex items-center justify-between gap-2">
+            <form onSubmit={handleCreateNote} className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
+              <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5 space-y-3.5 text-xs flex flex-col min-h-0">
+                <div className="flex items-center justify-between gap-2 shrink-0">
                   <input
                     type="text"
                     value={newTitle}
@@ -620,7 +874,7 @@ export const QuickNotesView: React.FC<QuickNotesViewProps> = ({
                 </div>
 
                 {composerMode === 'write' && (
-                  <div className="flex flex-wrap items-center gap-1 py-1 px-1.5 bg-black/35 border border-white/10 rounded-xl text-xs text-white/70">
+                  <div className="shrink-0 flex flex-wrap items-center gap-1 py-1 px-1.5 bg-black/35 border border-white/10 rounded-xl text-xs text-white/70">
                     <button
                       type="button"
                       onClick={() => insertFormatting(composerTextareaRef.current, '==', '==', 'texto remarcado', newContent, setNewContent)}
@@ -700,27 +954,29 @@ export const QuickNotesView: React.FC<QuickNotesViewProps> = ({
                   </div>
                 )}
 
-                {composerMode === 'write' ? (
-                  <textarea
-                    ref={composerTextareaRef}
-                    rows={6}
-                    value={newContent}
-                    onChange={(e) => setNewContent(e.target.value)}
-                    placeholder="Escribe lo que tienes en mente... Puedes usar los botones de arriba para remarcar o dar formato al texto."
-                    className="w-full p-3 bg-[#1F1F1F] border border-[#5C464B]/60 rounded-xl text-xs text-white placeholder-white/40 focus:outline-hidden focus:border-[#FF688B] resize-none leading-relaxed font-medium"
-                  />
-                ) : (
-                  <div className="p-3 bg-black/30 border border-white/10 rounded-2xl min-h-[120px]">
-                    {newContent.trim() ? (
-                      <FormattedNoteContent content={newContent} />
-                    ) : (
-                      <span className="text-white/30 text-xs italic">Escribe texto para ver la vista previa con estilo.</span>
-                    )}
-                  </div>
-                )}
+                <div className="flex-1 flex flex-col min-h-[160px]">
+                  {composerMode === 'write' ? (
+                    <textarea
+                      ref={composerTextareaRef}
+                      value={newContent}
+                      onChange={(e) => setNewContent(e.target.value)}
+                      placeholder="Escribe lo que tienes en mente... Puedes usar los botones de arriba para remarcar o dar formato al texto."
+                      className="w-full flex-1 min-h-[160px] p-3.5 bg-[#1F1F1F] border border-[#5C464B]/60 rounded-xl text-xs text-white placeholder-white/40 focus:outline-hidden focus:border-[#FF688B] resize-y leading-relaxed font-medium"
+                    />
+                  ) : (
+                    <div className="flex-1 p-3.5 bg-black/30 border border-white/10 rounded-2xl min-h-[160px] overflow-y-auto">
+                      {newContent.trim() ? (
+                        <FormattedNoteContent content={newContent} />
+                      ) : (
+                        <span className="text-white/30 text-xs italic">Escribe texto para ver la vista previa con estilo.</span>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
 
-              <div className="shrink-0 px-4 sm:px-6 py-3 border-t border-[#5C464B]/50 bg-[#1F1F1F] flex items-center justify-between gap-2 shadow-[0_-5px_15px_rgba(0,0,0,0.3)]">
+              {/* Bottom bar */}
+              <div className="shrink-0 px-4 sm:px-6 py-3 border-t border-[#5C464B]/50 bg-[#1F1F1F] flex items-center justify-between gap-2 shadow-[0_-5px_15px_rgba(0,0,0,0.3)] select-none">
                 <div className="flex items-center gap-1.5">
                   <Palette className="w-3.5 h-3.5 text-white/40 mr-1" />
                   {NOTE_COLORS.map((c) => (
@@ -738,12 +994,18 @@ export const QuickNotesView: React.FC<QuickNotesViewProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2">
+                  {!isComposerMaximized && (
+                    <span className="hidden sm:inline-flex items-center text-[10px] text-white/40 font-medium select-none pr-1">
+                      ↔ Arrastra bordes o esquina para expandir
+                    </span>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
                       setIsComposerOpen(false);
                       setNewTitle('');
                       setNewContent('');
+                      setIsComposerMaximized(false);
                     }}
                     className="px-3.5 py-1.5 text-xs text-white/70 hover:text-white rounded-full hover:bg-white/10 transition-colors font-medium"
                   >
@@ -758,6 +1020,48 @@ export const QuickNotesView: React.FC<QuickNotesViewProps> = ({
                   </button>
                 </div>
               </div>
+
+              {/* Interactive Resizing Handles on Desktop */}
+              {!isComposerMaximized && (
+                <>
+                  {/* Right border drag handle */}
+                  <div
+                    onMouseDown={(e) => startResize(e, 'horizontal', false)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="hidden sm:block absolute right-0 top-0 bottom-0 w-2.5 cursor-ew-resize hover:bg-[#FF688B]/30 transition-colors z-30 group"
+                    title="Arrastra para cambiar el ancho libremente"
+                  >
+                    <div className="w-0.5 h-8 bg-white/20 rounded-full mx-auto relative top-1/2 -translate-y-1/2 group-hover:bg-[#FF688B]" />
+                  </div>
+
+                  {/* Bottom border drag handle */}
+                  <div
+                    onMouseDown={(e) => startResize(e, 'vertical', false)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="hidden sm:block absolute bottom-0 left-0 right-0 h-2.5 cursor-ns-resize hover:bg-[#FF688B]/30 transition-colors z-30 group"
+                    title="Arrastra para cambiar el alto libremente"
+                  >
+                    <div className="h-0.5 w-8 bg-white/20 rounded-full mx-auto relative top-1/2 -translate-y-1/2 group-hover:bg-[#FF688B]" />
+                  </div>
+
+                  {/* Bottom-right corner drag handle */}
+                  <div
+                    onMouseDown={(e) => startResize(e, 'both', false)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="hidden sm:flex absolute bottom-1 right-1 w-6 h-6 items-center justify-center cursor-nwse-resize text-white/40 hover:text-[#FF688B] hover:bg-white/10 rounded-br-2xl transition-all z-40 select-none group"
+                    title="Arrastra para expandir o ajustar el tamaño libremente en ancho y alto"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" className="group-hover:scale-110 transition-transform">
+                      <circle cx="10" cy="2" r="1.2" />
+                      <circle cx="10" cy="6" r="1.2" />
+                      <circle cx="6" cy="6" r="1.2" />
+                      <circle cx="10" cy="10" r="1.2" />
+                      <circle cx="6" cy="10" r="1.2" />
+                      <circle cx="2" cy="10" r="1.2" />
+                    </svg>
+                  </div>
+                </>
+              )}
             </form>
           </div>
         </div>
@@ -766,199 +1070,277 @@ export const QuickNotesView: React.FC<QuickNotesViewProps> = ({
       {/* Edit Note Modal with Full Styling and Remarcar Tools */}
       {editingNote && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150"
-          onClick={() => setEditingNote(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150"
+          onMouseDown={(e) => {
+            mouseDownBackdropRef.current = e.target;
+          }}
+          onClick={(e) => {
+            if (justResizedRef.current || isResizingBoxRef.current || isResizingBox) {
+              justResizedRef.current = false;
+              return;
+            }
+            if (mouseDownBackdropRef.current === e.currentTarget && e.target === e.currentTarget) {
+              setEditingNote(null);
+            }
+          }}
         >
           <div
-            className="relative bg-[#161625]/95 backdrop-blur-2xl border border-white/20 rounded-3xl shadow-[0_30px_90px_rgba(0,0,0,0.9)] ring-1 ring-white/10 w-full max-w-lg flex flex-col overflow-hidden text-[#FFE8EF]"
+            ref={editBoxRef}
+            onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
+            className={`relative bg-[#161625]/95 backdrop-blur-2xl border border-white/20 rounded-2xl sm:rounded-3xl shadow-[0_30px_90px_rgba(0,0,0,0.9)] ring-1 ring-white/10 flex flex-col text-[#FFE8EF] ${
+              isEditMaximized
+                ? 'w-[96vw] h-[92dvh] rounded-2xl'
+                : 'w-[96vw] max-w-[96vw] max-h-[92dvh]'
+            } ${isResizingBox ? 'select-none transition-none' : 'transition-all duration-150'}`}
+            style={
+              isEditMaximized
+                ? { width: '96vw', height: '92dvh' }
+                : {
+                    width: `min(96vw, ${editModalSize.width}px)`,
+                    height: `min(92dvh, ${editModalSize.height}px)`,
+                    minWidth: '360px',
+                    minHeight: '380px',
+                    maxWidth: '96vw',
+                    maxHeight: '92dvh',
+                  }
+            }
           >
             <div 
-              className="h-1.5 w-full transition-colors" 
+              className="h-1.5 w-full transition-colors shrink-0" 
               style={{ backgroundColor: editColor }} 
             />
 
-            <div className="px-5 py-3.5 border-b border-white/10 bg-white/[0.03] flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Edit3 className="w-4 h-4 text-[#FF99AA]" />
-                <h3 className="text-sm font-extrabold text-white">Editar Nota y Estilos</h3>
+            <div className="px-5 py-3 border-b border-white/10 bg-white/[0.03] flex items-center justify-between shrink-0 gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <Edit3 className="w-4 h-4 text-[#FF99AA] shrink-0" />
+                <h3 className="text-sm font-extrabold text-white truncate">Editar Nota y Estilos</h3>
+                {!isEditMaximized && (
+                  <span className="hidden md:inline-flex items-center text-[10px] font-semibold text-white/50 bg-white/5 px-2 py-0.5 rounded-full border border-white/10 shrink-0">
+                    {Math.round(editModalSize.width)} × {Math.round(editModalSize.height)} px
+                  </span>
+                )}
               </div>
-              <button
-                onClick={() => setEditingNote(null)}
-                className="p-1 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-all"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
 
-            <form onSubmit={handleSaveEdit} className="p-5 space-y-3.5 text-xs">
-              <div className="flex items-center justify-between gap-2">
-                <input
-                  type="text"
-                  value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                  placeholder="Título (opcional)"
-                  className="w-full px-3 py-2 bg-white/[0.04] border border-white/15 rounded-xl font-bold text-white placeholder-white/40 focus:outline-hidden focus:border-[#FF99AA]"
-                />
-                
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {/* Mode switch */}
-                  <div className="flex items-center bg-black/40 border border-white/10 p-0.5 rounded-lg text-[10px] font-bold">
+              <div className="flex items-center gap-1.5 shrink-0">
+                {!isEditMaximized && (
+                  <div className="hidden sm:flex items-center gap-1 bg-black/40 border border-white/10 p-0.5 rounded-lg text-[10px] font-bold">
                     <button
                       type="button"
-                      onClick={() => setEditMode('write')}
+                      onClick={() => setEditModalSize({ width: 560, height: 460 })}
                       className={`px-2 py-0.5 rounded-md transition-all ${
-                        editMode === 'write' ? 'bg-[#FF99AA] text-[#0F0F1A]' : 'text-white/60 hover:text-white'
+                        editModalSize.width <= 580 ? 'bg-white/20 text-white' : 'text-white/50 hover:text-white'
                       }`}
+                      title="Tamaño compacto"
                     >
-                      Escribir
+                      Compacto
                     </button>
                     <button
                       type="button"
-                      onClick={() => setEditMode('preview')}
+                      onClick={() => setEditModalSize({ width: 680, height: 560 })}
                       className={`px-2 py-0.5 rounded-md transition-all ${
-                        editMode === 'preview' ? 'bg-[#FF99AA] text-[#0F0F1A]' : 'text-white/60 hover:text-white'
+                        editModalSize.width > 580 && editModalSize.width < 880 ? 'bg-white/20 text-white' : 'text-white/50 hover:text-white'
                       }`}
+                      title="Tamaño estándar"
                     >
-                      Ver estilo
+                      Estándar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditModalSize({ width: 940, height: 680 })}
+                      className={`px-2 py-0.5 rounded-md transition-all ${
+                        editModalSize.width >= 880 ? 'bg-white/20 text-white' : 'text-white/50 hover:text-white'
+                      }`}
+                      title="Tamaño amplio"
+                    >
+                      Amplio
                     </button>
                   </div>
+                )}
 
-                  <button
-                    type="button"
-                    onClick={() => setEditIsPinned(!editIsPinned)}
-                    className={`p-2 rounded-xl border transition-all ${
-                      editIsPinned 
-                        ? 'bg-[#FF99AA] text-[#0F0F1A] border-[#FFB0CC]' 
-                        : 'text-white/40 border-white/10 hover:text-white'
-                    }`}
-                    title={editIsPinned ? 'Nota fijada' : 'Fijar nota'}
-                  >
-                    <Pin className="w-4 h-4" />
-                  </button>
+                <button
+                  type="button"
+                  onClick={() => setIsEditMaximized(!isEditMaximized)}
+                  className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-all hidden sm:flex items-center justify-center"
+                  title={isEditMaximized ? "Restaurar tamaño normal" : "Pantalla completa"}
+                >
+                  {isEditMaximized ? <Minimize2 className="w-4 h-4 text-[#FF99AA]" /> : <Maximize2 className="w-4 h-4" />}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setEditingNote(null)}
+                  className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-all"
+                  title="Cerrar"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
+              <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5 space-y-3.5 text-xs flex flex-col min-h-0">
+                <div className="flex items-center justify-between gap-2 shrink-0">
+                  <input
+                    type="text"
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    placeholder="Título (opcional)"
+                    className="w-full px-3 py-2 bg-white/[0.04] border border-white/15 rounded-xl font-bold text-white placeholder-white/40 focus:outline-hidden focus:border-[#FF99AA]"
+                  />
+                  
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center bg-black/40 border border-white/10 p-0.5 rounded-lg text-[10px] font-bold">
+                      <button
+                        type="button"
+                        onClick={() => setEditMode('write')}
+                        className={`px-2 py-0.5 rounded-md transition-all ${
+                          editMode === 'write' ? 'bg-[#FF99AA] text-[#0F0F1A]' : 'text-white/60 hover:text-white'
+                        }`}
+                      >
+                        Escribir
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditMode('preview')}
+                        className={`px-2 py-0.5 rounded-md transition-all ${
+                          editMode === 'preview' ? 'bg-[#FF99AA] text-[#0F0F1A]' : 'text-white/60 hover:text-white'
+                        }`}
+                      >
+                        Ver estilo
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setEditIsPinned(!editIsPinned)}
+                      className={`p-2 rounded-xl border transition-all ${
+                        editIsPinned 
+                          ? 'bg-[#FF99AA] text-[#0F0F1A] border-[#FFB0CC]' 
+                          : 'text-white/40 border-white/10 hover:text-white'
+                      }`}
+                      title={editIsPinned ? 'Nota fijada' : 'Fijar nota'}
+                    >
+                      <Pin className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Rich Formatting Toolbar in Edit Modal */}
+                {editMode === 'write' && (
+                  <div className="shrink-0 flex flex-wrap items-center gap-1 py-1 px-1.5 bg-black/35 border border-white/10 rounded-xl text-xs text-white/70">
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting(editTextareaRef.current, '==', '==', 'texto remarcado', editContent, setEditContent)}
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-amber-400/20 hover:text-amber-300 text-amber-400 font-bold transition-all text-[11px]"
+                      title="Remarcar texto (Resaltador amarillo)"
+                    >
+                      <Highlighter className="w-3.5 h-3.5" />
+                      <span>Remarcar</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting(editTextareaRef.current, '==rose:', '==', 'resaltado rosa', editContent, setEditContent)}
+                      className="flex items-center gap-1 px-1.5 py-1 rounded-lg hover:bg-[#FF6688]/20 hover:text-[#FFB0CC] text-[#FF99AA] font-bold transition-all text-[11px]"
+                      title="Remarcar en color rosa"
+                    >
+                      <span className="w-2 h-2 rounded-full bg-[#FF6688]" />
+                      <span>Rosa</span>
+                    </button>
+
+                    <div className="w-[1px] h-3.5 bg-white/15 mx-0.5" />
+
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting(editTextareaRef.current, '**', '**', 'negrita', editContent, setEditContent)}
+                      className="p-1 rounded-lg hover:bg-white/15 hover:text-white transition-all"
+                      title="Negrita (**texto**)"
+                    >
+                      <Bold className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting(editTextareaRef.current, '*', '*', 'cursiva', editContent, setEditContent)}
+                      className="p-1 rounded-lg hover:bg-white/15 hover:text-white transition-all"
+                      title="Cursiva (*texto*)"
+                    >
+                      <Italic className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting(editTextareaRef.current, '<u>', '</u>', 'subrayado', editContent, setEditContent)}
+                      className="p-1 rounded-lg hover:bg-white/15 hover:text-white transition-all"
+                      title="Subrayado (<u>texto</u>)"
+                    >
+                      <UnderlineIcon className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting(editTextareaRef.current, '~~', '~~', 'tachado', editContent, setEditContent)}
+                      className="p-1 rounded-lg hover:bg-white/15 hover:text-white transition-all"
+                      title="Tachado (~~texto~~)"
+                    >
+                      <Strikethrough className="w-3.5 h-3.5" />
+                    </button>
+
+                    <div className="w-[1px] h-3.5 bg-white/15 mx-0.5" />
+
+                    <button
+                      type="button"
+                      onClick={() => insertLinePrefix(editTextareaRef.current, '- ', editContent, setEditContent)}
+                      className="flex items-center gap-1 px-1.5 py-1 rounded-lg hover:bg-white/15 hover:text-white transition-all text-[11px]"
+                      title="Lista con viñetas"
+                    >
+                      <List className="w-3.5 h-3.5" />
+                      <span>Lista</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => insertLinePrefix(editTextareaRef.current, '- [ ] ', editContent, setEditContent)}
+                      className="flex items-center gap-1 px-1.5 py-1 rounded-lg hover:bg-white/15 hover:text-white transition-all text-[11px]"
+                      title="Casilla de verificación / Tarea"
+                    >
+                      <CheckSquare className="w-3.5 h-3.5" />
+                      <span>Tarea</span>
+                    </button>
+                  </div>
+                )}
+
+                <div className="flex-1 flex flex-col min-h-[160px]">
+                  {editMode === 'write' ? (
+                    <textarea
+                      ref={editTextareaRef}
+                      value={editContent}
+                      onChange={(e) => setEditContent(e.target.value)}
+                      placeholder="Contenido de la nota..."
+                      className="w-full flex-1 min-h-[160px] p-3.5 bg-white/[0.04] border border-white/15 rounded-xl text-xs text-white placeholder-white/40 focus:outline-hidden focus:border-[#FF99AA] leading-relaxed font-medium resize-y"
+                    />
+                  ) : (
+                    <div className="flex-1 p-3.5 bg-black/30 border border-white/10 rounded-2xl min-h-[160px] overflow-y-auto">
+                      {editContent.trim() ? (
+                        <FormattedNoteContent content={editContent} />
+                      ) : (
+                        <span className="text-white/30 text-xs italic">Sin contenido aún.</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Rich Formatting Toolbar in Edit Modal */}
-              {editMode === 'write' && (
-                <div className="flex flex-wrap items-center gap-1 py-1 px-1.5 bg-black/35 border border-white/10 rounded-xl text-xs text-white/70">
-                  {/* Remarcar Amarillo */}
-                  <button
-                    type="button"
-                    onClick={() => insertFormatting(editTextareaRef.current, '==', '==', 'texto remarcado', editContent, setEditContent)}
-                    className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-amber-400/20 hover:text-amber-300 text-amber-400 font-bold transition-all text-[11px]"
-                    title="Remarcar texto (Resaltador amarillo)"
-                  >
-                    <Highlighter className="w-3.5 h-3.5" />
-                    <span>Remarcar</span>
-                  </button>
-
-                  {/* Remarcar Rosa */}
-                  <button
-                    type="button"
-                    onClick={() => insertFormatting(editTextareaRef.current, '==rose:', '==', 'resaltado rosa', editContent, setEditContent)}
-                    className="flex items-center gap-1 px-1.5 py-1 rounded-lg hover:bg-[#FF6688]/20 hover:text-[#FFB0CC] text-[#FF99AA] font-bold transition-all text-[11px]"
-                    title="Remarcar en color rosa"
-                  >
-                    <span className="w-2 h-2 rounded-full bg-[#FF6688]" />
-                    <span>Rosa</span>
-                  </button>
-
-                  <div className="w-[1px] h-3.5 bg-white/15 mx-0.5" />
-
-                  {/* Negrita */}
-                  <button
-                    type="button"
-                    onClick={() => insertFormatting(editTextareaRef.current, '**', '**', 'negrita', editContent, setEditContent)}
-                    className="p-1 rounded-lg hover:bg-white/15 hover:text-white transition-all"
-                    title="Negrita (**texto**)"
-                  >
-                    <Bold className="w-3.5 h-3.5" />
-                  </button>
-
-                  {/* Cursiva */}
-                  <button
-                    type="button"
-                    onClick={() => insertFormatting(editTextareaRef.current, '*', '*', 'cursiva', editContent, setEditContent)}
-                    className="p-1 rounded-lg hover:bg-white/15 hover:text-white transition-all"
-                    title="Cursiva (*texto*)"
-                  >
-                    <Italic className="w-3.5 h-3.5" />
-                  </button>
-
-                  {/* Subrayado */}
-                  <button
-                    type="button"
-                    onClick={() => insertFormatting(editTextareaRef.current, '<u>', '</u>', 'subrayado', editContent, setEditContent)}
-                    className="p-1 rounded-lg hover:bg-white/15 hover:text-white transition-all"
-                    title="Subrayado (<u>texto</u>)"
-                  >
-                    <UnderlineIcon className="w-3.5 h-3.5" />
-                  </button>
-
-                  {/* Tachado */}
-                  <button
-                    type="button"
-                    onClick={() => insertFormatting(editTextareaRef.current, '~~', '~~', 'tachado', editContent, setEditContent)}
-                    className="p-1 rounded-lg hover:bg-white/15 hover:text-white transition-all"
-                    title="Tachado (~~texto~~)"
-                  >
-                    <Strikethrough className="w-3.5 h-3.5" />
-                  </button>
-
-                  <div className="w-[1px] h-3.5 bg-white/15 mx-0.5" />
-
-                  {/* Viñetas */}
-                  <button
-                    type="button"
-                    onClick={() => insertLinePrefix(editTextareaRef.current, '- ', editContent, setEditContent)}
-                    className="flex items-center gap-1 px-1.5 py-1 rounded-lg hover:bg-white/15 hover:text-white transition-all text-[11px]"
-                    title="Lista con viñetas"
-                  >
-                    <List className="w-3.5 h-3.5" />
-                    <span>Lista</span>
-                  </button>
-
-                  {/* Checklist */}
-                  <button
-                    type="button"
-                    onClick={() => insertLinePrefix(editTextareaRef.current, '- [ ] ', editContent, setEditContent)}
-                    className="flex items-center gap-1 px-1.5 py-1 rounded-lg hover:bg-white/15 hover:text-white transition-all text-[11px]"
-                    title="Casilla de verificación / Tarea"
-                  >
-                    <CheckSquare className="w-3.5 h-3.5" />
-                    <span>Tarea</span>
-                  </button>
-                </div>
-              )}
-
-              {editMode === 'write' ? (
-                <textarea
-                  ref={editTextareaRef}
-                  rows={8}
-                  value={editContent}
-                  onChange={(e) => setEditContent(e.target.value)}
-                  placeholder="Contenido de la nota..."
-                  className="w-full px-3 py-2.5 bg-white/[0.04] border border-white/15 rounded-xl text-xs text-white placeholder-white/40 focus:outline-hidden focus:border-[#FF99AA] leading-relaxed font-medium resize-none"
-                />
-              ) : (
-                <div className="p-4 bg-black/30 border border-white/10 rounded-2xl min-h-[160px] max-h-[260px] overflow-y-auto">
-                  {editContent.trim() ? (
-                    <FormattedNoteContent content={editContent} />
-                  ) : (
-                    <span className="text-white/30 text-xs italic">Sin contenido aún.</span>
-                  )}
-                </div>
-              )}
-
-              <div className="flex items-center justify-between gap-2 pt-2">
+              {/* Bottom bar */}
+              <div className="shrink-0 px-4 sm:px-6 py-3 border-t border-white/10 bg-white/[0.03] flex items-center justify-between gap-2 select-none">
                 <div className="flex items-center gap-1.5">
                   {NOTE_COLORS.map((c) => (
                     <button
                       key={c.hex}
                       type="button"
                       onClick={() => setEditColor(c.hex)}
-                      className={`w-5 h-5 rounded-full transition-all ${
+                      className={`w-4 h-4 rounded-full transition-all ${
                         editColor === c.hex ? 'ring-2 ring-white scale-125' : 'opacity-60 hover:opacity-100'
                       }`}
                       style={{ backgroundColor: c.hex }}
@@ -968,21 +1350,65 @@ export const QuickNotesView: React.FC<QuickNotesViewProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2">
+                  {!isEditMaximized && (
+                    <span className="hidden sm:inline-flex items-center text-[10px] text-white/40 font-medium select-none pr-1">
+                      ↔ Arrastra bordes o esquina para expandir
+                    </span>
+                  )}
                   <button
                     type="button"
                     onClick={() => setEditingNote(null)}
-                    className="px-3 py-1.5 text-xs text-white/70 hover:text-white rounded-xl hover:bg-white/10 transition-colors"
+                    className="px-3 py-1.5 text-xs text-white/70 hover:text-white rounded-full hover:bg-white/10 transition-colors font-medium"
                   >
                     Cancelar
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-1.5 text-xs font-extrabold bg-gradient-to-r from-[#FF6688] to-[#FF99AA] text-[#0F0F1A] rounded-xl transition-all shadow-md shadow-[#FF6688]/30"
+                    className="px-5 py-2 text-xs font-extrabold bg-gradient-to-r from-[#FF6688] to-[#FF99AA] text-[#0F0F1A] rounded-full transition-all shadow-md shadow-[#FF6688]/30 active:scale-95"
                   >
                     Guardar Cambios
                   </button>
                 </div>
               </div>
+
+              {/* Interactive Resizing Handles on Desktop */}
+              {!isEditMaximized && (
+                <>
+                  <div
+                    onMouseDown={(e) => startResize(e, 'horizontal', true)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="hidden sm:block absolute right-0 top-0 bottom-0 w-2.5 cursor-ew-resize hover:bg-[#FF99AA]/30 transition-colors z-30 group"
+                    title="Arrastra para cambiar el ancho libremente"
+                  >
+                    <div className="w-0.5 h-8 bg-white/20 rounded-full mx-auto relative top-1/2 -translate-y-1/2 group-hover:bg-[#FF99AA]" />
+                  </div>
+
+                  <div
+                    onMouseDown={(e) => startResize(e, 'vertical', true)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="hidden sm:block absolute bottom-0 left-0 right-0 h-2.5 cursor-ns-resize hover:bg-[#FF99AA]/30 transition-colors z-30 group"
+                    title="Arrastra para cambiar el alto libremente"
+                  >
+                    <div className="h-0.5 w-8 bg-white/20 rounded-full mx-auto relative top-1/2 -translate-y-1/2 group-hover:bg-[#FF99AA]" />
+                  </div>
+
+                  <div
+                    onMouseDown={(e) => startResize(e, 'both', true)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="hidden sm:flex absolute bottom-1 right-1 w-6 h-6 items-center justify-center cursor-nwse-resize text-white/40 hover:text-[#FF99AA] hover:bg-white/10 rounded-br-2xl transition-all z-40 select-none group"
+                    title="Arrastra para expandir o ajustar el tamaño libremente en ancho y alto"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" className="group-hover:scale-110 transition-transform">
+                      <circle cx="10" cy="2" r="1.2" />
+                      <circle cx="10" cy="6" r="1.2" />
+                      <circle cx="6" cy="6" r="1.2" />
+                      <circle cx="10" cy="10" r="1.2" />
+                      <circle cx="6" cy="10" r="1.2" />
+                      <circle cx="2" cy="10" r="1.2" />
+                    </svg>
+                  </div>
+                </>
+              )}
             </form>
           </div>
         </div>

@@ -62,6 +62,59 @@ import { GoalsTrackerView } from './components/GoalsTrackerView';
 import { QuickNotesView } from './components/QuickNotesView';
 import { LoginCalloutBanner } from './components/LoginCalloutBanner';
 
+/**
+ * Automatically identifies and collapses duplicate tasks
+ * (same title + due date + due time, e.g. from Google Calendar sync collision).
+ */
+function deduplicateTasks(tasks: AssignmentTask[]): {
+  uniqueTasks: AssignmentTask[];
+  duplicatesToDelete: AssignmentTask[];
+} {
+  const seenIds = new Set<string>();
+  const seenFingerprints = new Map<string, AssignmentTask>();
+  const uniqueTasks: AssignmentTask[] = [];
+  const duplicatesToDelete: AssignmentTask[] = [];
+
+  for (const task of tasks) {
+    if (seenIds.has(task.id)) {
+      duplicatesToDelete.push(task);
+      continue;
+    }
+    seenIds.add(task.id);
+
+    // Normalize fingerprint: title + dueDate + dueTime
+    const normTitle = (task.title || '').trim().toLowerCase();
+    const fp = `${normTitle}_${task.dueDate}_${task.dueTime || 'all-day'}`;
+    const existing = seenFingerprints.get(fp);
+
+    if (existing) {
+      // Prioritize the task with higher priority or user-defined priority
+      const isUrgent = (t: AssignmentTask) => t.priority === 'urgent_important' || t.priority === 'high';
+      const keep = isUrgent(existing) ? existing : (isUrgent(task) ? task : existing);
+      const discard = keep === existing ? task : existing;
+
+      // Preserve Google Calendar Event ID on the kept task if the discarded one had it
+      if (discard.googleEventId && !keep.googleEventId) {
+        keep.googleEventId = discard.googleEventId;
+        keep.syncedWithGoogle = true;
+      }
+
+      seenFingerprints.set(fp, keep);
+      duplicatesToDelete.push(discard);
+
+      const keepIdx = uniqueTasks.findIndex((t) => t.id === discard.id);
+      if (keepIdx !== -1) {
+        uniqueTasks[keepIdx] = keep;
+      }
+    } else {
+      seenFingerprints.set(fp, task);
+      uniqueTasks.push(task);
+    }
+  }
+
+  return { uniqueTasks, duplicatesToDelete };
+}
+
 export default function App() {
   // Authentication state
   const [user, setUser] = useState<User | null>(null);
@@ -119,6 +172,8 @@ export default function App() {
       if (currentUser) {
         // Pre-load local device cache for this specific user ID for fast offline rendering
         let cachedTasks = loadTasksFromStorage(currentUser.uid);
+        const { uniqueTasks: dedupedCache } = deduplicateTasks(cachedTasks);
+        cachedTasks = dedupedCache;
         
         // If guest tasks were created on this device before logging in, transfer them to this user
         const guestTasks = loadTasksFromStorage(null);
@@ -171,8 +226,18 @@ export default function App() {
       // Filter out any task that was recently deleted locally
       const validCloudTasks = cloudTasks.filter((t) => !deletedTaskIdsRef.current.has(t.id));
 
+      // Automatically identify and collapse any twin duplicates (e.g., from Google Calendar sync collisions)
+      const { uniqueTasks, duplicatesToDelete } = deduplicateTasks(validCloudTasks);
+
+      // Silently clean up orphaned duplicates from Firestore
+      if (duplicatesToDelete.length > 0) {
+        duplicatesToDelete.forEach((dup) => {
+          deleteTaskFromFirestore(user.uid, dup.id).catch(() => {});
+        });
+      }
+
       // Sort tasks consistently by dueDate and dueTime
-      const sorted = [...validCloudTasks].sort((a, b) => {
+      const sorted = [...uniqueTasks].sort((a, b) => {
         if (a.dueDate !== b.dueDate) return a.dueDate.localeCompare(b.dueDate);
         return (a.dueTime || '').localeCompare(b.dueTime || '');
       });
@@ -214,7 +279,9 @@ export default function App() {
       const deletedEventIds = await getDeletedGoogleEvents(user.uid);
       const { mergedTasks, importedCount } = await syncPlansWithGoogleCalendar(token, tasksRef.current, deletedEventIds);
       if (importedCount > 0) {
-        for (const t of mergedTasks) {
+        // Only upload newly imported tasks to Firestore (avoid re-saving already synced tasks)
+        const newImports = mergedTasks.filter((t) => t.id.startsWith('task-gcal-'));
+        for (const t of newImports) {
           await syncTaskToFirestore(user.uid, t);
         }
       }
@@ -362,27 +429,50 @@ export default function App() {
   const handleDeleteTask = async (taskId: string) => {
     deletedTaskIdsRef.current.add(taskId);
     const taskToDelete = tasksRef.current.find((t) => t.id === taskId);
+
+    // Also find any twin duplicate that shares the same title, date, and time
+    const twinDuplicates = taskToDelete ? tasksRef.current.filter((t) =>
+      t.id !== taskId &&
+      (t.title || '').trim().toLowerCase() === (taskToDelete.title || '').trim().toLowerCase() &&
+      t.dueDate === taskToDelete.dueDate &&
+      (t.dueTime || '') === (taskToDelete.dueTime || '')
+    ) : [];
+
+    const allIdsToDelete = [taskId, ...twinDuplicates.map((d) => d.id)];
+    allIdsToDelete.forEach((id) => deletedTaskIdsRef.current.add(id));
+
     setTasks((prev) => {
-      const next = prev.filter((t) => t.id !== taskId);
+      const next = prev.filter((t) => !allIdsToDelete.includes(t.id));
       saveTasksToStorage(next, user?.uid);
       return next;
     });
-    if (selectedTask?.id === taskId) {
+
+    if (selectedTask && allIdsToDelete.includes(selectedTask.id)) {
       setSelectedTask(null);
     }
 
     if (user) {
-      await deleteTaskFromFirestore(user.uid, taskId);
-      // Record deleted Google event so sync will NEVER resurrect it
-      if (taskToDelete?.googleEventId) {
-        await recordDeletedGoogleEvent(user.uid, taskToDelete.googleEventId);
+      for (const id of allIdsToDelete) {
+        await deleteTaskFromFirestore(user.uid, id);
       }
-    }
 
-    // Automatically remove event from Google Calendar in the background
-    const token = getGoogleAccessToken();
-    if (token && taskToDelete?.googleEventId) {
-      deleteGoogleCalendarEvent(token, taskToDelete.googleEventId).catch(() => {});
+      // Record deleted Google events so sync will NEVER resurrect them
+      const allGoogleIds = [
+        taskToDelete?.googleEventId,
+        ...twinDuplicates.map((d) => d.googleEventId),
+      ].filter(Boolean) as string[];
+
+      for (const gId of allGoogleIds) {
+        await recordDeletedGoogleEvent(user.uid, gId);
+      }
+
+      // Automatically remove event from Google Calendar in the background
+      const token = getGoogleAccessToken();
+      if (token) {
+        for (const gId of allGoogleIds) {
+          deleteGoogleCalendarEvent(token, gId).catch(() => {});
+        }
+      }
     }
   };
 
