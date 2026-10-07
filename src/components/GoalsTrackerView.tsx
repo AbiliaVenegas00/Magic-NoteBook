@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Target, 
   Plus, 
@@ -10,7 +10,8 @@ import {
   ListPlus,
   Clock,
   GripVertical,
-  Pencil
+  Pencil,
+  Pin
 } from 'lucide-react';
 import { Goal, GoalTask, PriorityLevel, GoalPriority } from '../types';
 
@@ -74,10 +75,12 @@ interface GoalsTrackerViewProps {
   onAddGoal: (goal: Omit<Goal, 'id' | 'createdAt'>) => void;
   onUpdateGoal: (goalId: string, updated: Partial<Goal>) => void;
   onDeleteGoal: (goalId: string) => void;
+  onTogglePinGoal?: (goalId: string, isPinned?: boolean) => void;
   onToggleGoalTask: (goalId: string, taskId: string) => void;
-  onAddGoalTask: (goalId: string, taskTitle: string, priority?: PriorityLevel | GoalPriority) => void;
+  onAddGoalTask: (goalId: string, taskTitle: string, priority?: PriorityLevel | GoalPriority, isPinned?: boolean) => void;
   onDeleteGoalTask: (goalId: string, taskId: string) => void;
   onUpdateGoalTaskPriority: (goalId: string, taskId: string, priority: PriorityLevel | GoalPriority) => void;
+  onTogglePinGoalTask?: (goalId: string, taskId: string, isPinned?: boolean) => void;
   onReorderGoalTasks?: (goalId: string, reorderedTasks: GoalTask[]) => void;
   isCreateGoalModalOpen?: boolean;
   onOpenCreateGoalModal?: () => void;
@@ -156,10 +159,12 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
   onAddGoal,
   onUpdateGoal,
   onDeleteGoal,
+  onTogglePinGoal,
   onToggleGoalTask,
   onAddGoalTask,
   onDeleteGoalTask,
   onUpdateGoalTaskPriority,
+  onTogglePinGoalTask,
   onReorderGoalTasks,
   isCreateGoalModalOpen = false,
   onOpenCreateGoalModal,
@@ -174,11 +179,14 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
   });
   const [newGoalTargetCount, setNewGoalTargetCount] = useState<number>(20);
   const [newGoalColor, setNewGoalColor] = useState('#FF99AA');
+  const [newGoalIsPinned, setNewGoalIsPinned] = useState(false);
 
   // Inline input state per goal: map goalId -> input text
   const [taskInputs, setTaskInputs] = useState<Record<string, string>>({});
   // Selected priority per goal for newly added task: map goalId -> CleanPriority
   const [taskPriorities, setTaskPriorities] = useState<Record<string, CleanPriority>>({});
+  // Map goalId -> boolean for pin state of inline new task
+  const [taskIsPinned, setTaskIsPinned] = useState<Record<string, boolean>>({});
 
   // Drag and drop state
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
@@ -188,6 +196,7 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
   const [bulkAddGoalId, setBulkAddGoalId] = useState<string | null>(null);
   const [bulkAddText, setBulkAddText] = useState('');
   const [bulkAddPriority, setBulkAddPriority] = useState<CleanPriority>('high');
+  const [bulkAddIsPinned, setBulkAddIsPinned] = useState(false);
 
   // Filter for tasks: 'all' | 'pending' | 'completed'
   const [taskFilter, setTaskFilter] = useState<'all' | 'pending' | 'completed'>('all');
@@ -201,6 +210,7 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
   const [editGoalDate, setEditGoalDate] = useState('');
   const [editGoalTargetCount, setEditGoalTargetCount] = useState<number>(20);
   const [editGoalColor, setEditGoalColor] = useState('#FF99AA');
+  const [editGoalIsPinned, setEditGoalIsPinned] = useState(false);
 
   const handleOpenEditGoal = (goal: Goal) => {
     setEditingGoal(goal);
@@ -208,6 +218,7 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
     setEditGoalDate(goal.targetDate || '');
     setEditGoalTargetCount(goal.targetCount || 20);
     setEditGoalColor(goal.color || '#FF99AA');
+    setEditGoalIsPinned(!!goal.isPinned);
   };
 
   const handleSaveEditGoal = (e: React.FormEvent) => {
@@ -229,6 +240,7 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
       targetDays: calculatedDays,
       targetCount: editGoalTargetCount > 0 ? editGoalTargetCount : undefined,
       color: editGoalColor,
+      isPinned: editGoalIsPinned,
     });
 
     setEditingGoal(null);
@@ -277,11 +289,13 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
       targetCount: newGoalTargetCount > 0 ? newGoalTargetCount : undefined,
       color: newGoalColor,
       tasks: [],
+      isPinned: newGoalIsPinned,
     });
 
     setNewGoalTitle('');
     setNewGoalDate(defaultDate());
     setNewGoalTargetCount(20);
+    setNewGoalIsPinned(false);
     handleCloseModal();
   };
 
@@ -291,8 +305,10 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
     if (!text) return;
 
     const priority = taskPriorities[goalId] || 'high';
-    onAddGoalTask(goalId, text, priority);
+    const isPinned = !!taskIsPinned[goalId];
+    onAddGoalTask(goalId, text, priority, isPinned);
     setTaskInputs((prev) => ({ ...prev, [goalId]: '' }));
+    setTaskIsPinned((prev) => ({ ...prev, [goalId]: false }));
   };
 
   const handleBulkAddSubmit = (e: React.FormEvent) => {
@@ -307,12 +323,13 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
     for (const line of lines) {
       const cleaned = line.replace(/^(\d+[\.\)]\s*|[-*•]\s*)/, '').trim();
       if (cleaned) {
-        onAddGoalTask(bulkAddGoalId, cleaned, bulkAddPriority);
+        onAddGoalTask(bulkAddGoalId, cleaned, bulkAddPriority, bulkAddIsPinned);
       }
     }
 
     setBulkAddGoalId(null);
     setBulkAddText('');
+    setBulkAddIsPinned(false);
   };
 
   // Drag and Drop handlers to reorganize tasks up or down
@@ -350,6 +367,11 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
 
     // Move source task to target index
     const [movedTask] = currentTasks.splice(sourceIndex, 1);
+    const targetTask = currentTasks[targetIndex];
+    if (targetTask) {
+      // Keep pin status consistent with the drop target
+      movedTask.isPinned = targetTask.isPinned;
+    }
     currentTasks.splice(targetIndex, 0, movedTask);
 
     if (onReorderGoalTasks) {
@@ -357,10 +379,14 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
     }
   };
 
-  // Sort tasks in goal by color hierarchy: Rojo (Alta) -> Amarillo (Media) -> Verde (Baja)
+  // Sort tasks in goal by color hierarchy, keeping pinned tasks on top
   const handleSortByColor = (goal: Goal) => {
     const currentTasks = [...goal.tasks];
     currentTasks.sort((a, b) => {
+      const pinA = a.isPinned ? 1 : 0;
+      const pinB = b.isPinned ? 1 : 0;
+      if (pinA !== pinB) return pinB - pinA;
+
       const pA = normalizePriority(a.priority);
       const pB = normalizePriority(b.priority);
       const orderA = CLEAN_PRIORITIES.find((p) => p.key === pA)?.order ?? 2;
@@ -372,6 +398,10 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
       onReorderGoalTasks(goal.id, currentTasks);
     }
   };
+
+  const pinnedGoals = useMemo(() => goals.filter((g) => g.isPinned), [goals]);
+  const otherGoals = useMemo(() => goals.filter((g) => !g.isPinned), [goals]);
+  const orderedGoals = useMemo(() => [...pinnedGoals, ...otherGoals], [pinnedGoals, otherGoals]);
 
   return (
     <div className="space-y-5" id="goals-tracker-view">
@@ -458,7 +488,9 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {goals.map((goal) => {
+          {orderedGoals.map((goal, goalIndex) => {
+            const isFirstPinned = goalIndex === 0 && !!goal.isPinned;
+            const isFirstOther = goalIndex === pinnedGoals.length && pinnedGoals.length > 0;
             const totalTasks = goal.tasks.length;
             const completedTasks = goal.tasks.filter((t) => t.completed).length;
             
@@ -482,9 +514,24 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
             const currentInputPriority = taskPriorities[goal.id] || 'high';
 
             return (
-              <div
-                key={goal.id}
-                className="relative bg-[#252525] border border-[#5C464B]/50 rounded-3xl p-4 sm:p-5 shadow-[0_20px_50px_-15px_rgba(0,0,0,0.85)] flex flex-col justify-between transition-all duration-200 hover:border-[#FF688B]/60 overflow-hidden"
+              <React.Fragment key={goal.id}>
+                {isFirstPinned && (
+                  <div className="col-span-full flex items-center gap-2 pt-1 pb-0.5 text-[11px] font-extrabold text-[#FF99AA] uppercase tracking-wider px-1">
+                    <Pin className="w-3.5 h-3.5 fill-[#FF99AA] text-[#FF99AA]" />
+                    <span>Listas de Tareas Fijadas ({pinnedGoals.length})</span>
+                  </div>
+                )}
+                {isFirstOther && (
+                  <div className="col-span-full flex items-center gap-2 pt-4 pb-0.5 text-[11px] font-bold text-white/50 uppercase tracking-wider px-1">
+                    <span>Otras Metas ({otherGoals.length})</span>
+                  </div>
+                )}
+                <div
+                  className={`relative bg-[#252525] border rounded-3xl p-4 sm:p-5 shadow-[0_20px_50px_-15px_rgba(0,0,0,0.85)] flex flex-col justify-between transition-all duration-200 hover:border-[#FF688B]/60 overflow-hidden ${
+                  goal.isPinned
+                    ? 'border-[#FF688B]/70 ring-1 ring-[#FF688B]/30 shadow-[0_0_24px_rgba(255,104,139,0.18)]'
+                    : 'border-[#5C464B]/50'
+                }`}
               >
                 <div className="relative z-10">
                   {/* Goal Header */}
@@ -497,6 +544,15 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
                       <h3 className="text-sm font-extrabold text-white truncate tracking-tight">
                         {goal.title}
                       </h3>
+                      {goal.isPinned && (
+                        <span 
+                          className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#FF688B]/20 text-[#FF4D79] border border-[#FF688B]/40 shrink-0 shadow-xs"
+                          title="Lista de tareas fijada arriba"
+                        >
+                          <Pin className="w-2.5 h-2.5 fill-[#FF4D79]" />
+                          <span>Fijada</span>
+                        </span>
+                      )}
                       {isFinished && (
                         <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                           <CheckCircle2 className="w-3 h-3 text-emerald-400" />
@@ -506,6 +562,28 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
                     </div>
 
                     <div className="flex items-center gap-1 shrink-0">
+                      {/* Pin entire goal list button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (onTogglePinGoal) {
+                            onTogglePinGoal(goal.id, !goal.isPinned);
+                          } else {
+                            onUpdateGoal(goal.id, { isPinned: !goal.isPinned });
+                          }
+                        }}
+                        className={`px-2 py-1 rounded-xl transition-all flex items-center gap-1 text-xs font-semibold ${
+                          goal.isPinned
+                            ? 'text-[#FF2E63] bg-[#FF688B]/20 hover:bg-[#FF688B]/35 border border-[#FF688B]/40 shadow-xs'
+                            : 'text-[#FFD1DB]/75 hover:text-white hover:bg-white/10'
+                        }`}
+                        title={goal.isPinned ? 'Desfijar lista de tareas' : 'Fijar lista de tareas arriba'}
+                        aria-label={goal.isPinned ? 'Desfijar lista de tareas' : 'Fijar lista de tareas arriba'}
+                      >
+                        <Pin className={`w-3.5 h-3.5 ${goal.isPinned ? 'fill-[#FF2E63] text-[#FF2E63]' : 'text-[#FF688B]'}`} />
+                        <span>{goal.isPinned ? 'Fijada' : 'Fijar'}</span>
+                      </button>
+
                       <button
                         onClick={() => handleOpenEditGoal(goal)}
                         className="px-2 py-1 rounded-xl text-[#FFD1DB]/75 hover:text-white hover:bg-white/10 transition-all flex items-center gap-1 text-xs font-semibold"
@@ -603,7 +681,7 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Inline Add Task Input with 3 Color Selectors (Red, Yellow, Green) */}
+                  {/* Inline Add Task Input with 3 Color Selectors and Pin Toggle */}
                   <form onSubmit={(e) => handleInlineAddTask(goal.id, e)} className="flex items-center gap-1.5 mb-3">
                     {/* 3 Color Priority Picker (No P1, P2, P3, P4 text) */}
                     <div className="flex items-center gap-1 p-1 bg-[#1F1F1F] border border-[#5C464B]/50 rounded-xl shrink-0">
@@ -626,11 +704,26 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
                       })}
                     </div>
 
+                    {/* Pin button for new task */}
+                    <button
+                      type="button"
+                      onClick={() => setTaskIsPinned((prev) => ({ ...prev, [goal.id]: !prev[goal.id] }))}
+                      className={`p-1.5 rounded-xl border transition-all shrink-0 flex items-center justify-center ${
+                        taskIsPinned[goal.id]
+                          ? 'bg-[#FF688B]/25 border-[#FF688B] text-[#FF688B] ring-1 ring-[#FF688B]/50 shadow-xs'
+                          : 'bg-[#1F1F1F] border-[#5C464B]/50 text-white/40 hover:text-white hover:border-white/30'
+                      }`}
+                      title={taskIsPinned[goal.id] ? 'La tarea se creará fijada arriba (activado)' : 'Fijar tarea arriba al crear'}
+                      aria-label="Fijar tarea arriba"
+                    >
+                      <Pin className={`w-3.5 h-3.5 ${taskIsPinned[goal.id] ? 'fill-[#FF688B]' : ''}`} />
+                    </button>
+
                     <input
                       type="text"
                       value={taskInputs[goal.id] || ''}
                       onChange={(e) => setTaskInputs((prev) => ({ ...prev, [goal.id]: e.target.value }))}
-                      placeholder="Escribe una tarea y presiona Enter..."
+                      placeholder={taskIsPinned[goal.id] ? "Escribe una tarea para fijar arriba..." : "Escribe una tarea y presiona Enter..."}
                       className="flex-1 px-3 py-1.5 bg-[#1F1F1F] hover:bg-[#222222] focus:bg-[#222222] border border-[#5C464B]/50 rounded-xl text-xs text-white placeholder-white/40 focus:outline-hidden focus:border-[#FF688B] transition-all font-medium"
                     />
                     <button
@@ -646,6 +739,7 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
                         setBulkAddGoalId(goal.id);
                         setBulkAddText('');
                         setBulkAddPriority(currentInputPriority);
+                        setBulkAddIsPinned(!!taskIsPinned[goal.id]);
                       }}
                       className="px-2.5 py-1.5 text-xs font-semibold bg-[#3D2C30] hover:bg-[#4E393E] text-[#FFD1DB] border border-[#5C464B] rounded-xl transition-all shrink-0"
                       title="Pegar varias tareas de una sola vez"
@@ -654,108 +748,263 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
                     </button>
                   </form>
 
-                  {/* Task List with Drag and Drop Reordering (freely expands without scroll) */}
-                  <div className="space-y-1.5">
+                  {/* Task List with Pinned Section, Drag & Drop Reordering */}
+                  <div className="space-y-2">
                     {visibleTasks.length === 0 ? (
                       <div className="py-5 text-center border border-dashed border-[#5C464B]/40 rounded-xl text-xs text-white/40">
                         {goal.tasks.length === 0 ? 'Sin tareas. Añade una arriba.' : 'No hay tareas en este filtro.'}
                       </div>
                     ) : (
-                      visibleTasks.map((task, index) => {
-                        const priorityKey = normalizePriority(task.priority);
-                        const pConfig = CLEAN_PRIORITIES.find((p) => p.key === priorityKey) || CLEAN_PRIORITIES[0];
-                        const isDragging = draggedTaskId === task.id;
-                        const isDragOver = draggedOverTaskId === task.id;
-
-                        return (
-                          <div
-                            key={task.id}
-                            draggable={true}
-                            onDragStart={(e) => handleDragStart(e, task.id)}
-                            onDragOver={(e) => handleDragOver(e, task.id)}
-                            onDragLeave={handleDragLeave}
-                            onDrop={(e) => handleDrop(e, goal, task.id)}
-                            className={`p-2 rounded-xl border border-l-4 transition-all duration-150 flex items-center justify-between gap-2 select-none group ${pConfig.borderClass} ${
-                              isDragging 
-                                ? 'opacity-30 scale-95 border-dashed border-[#5C464B]' 
-                                : isDragOver
-                                ? 'bg-[#FFD1DB] ring-2 ring-[#FF688B] scale-[1.01]'
-                                : task.completed
-                                ? 'bg-[#191919] border-[#5C464B]/20 opacity-60 text-white/40'
-                                : 'bg-[#FFD1DB] border-[#FFD1DB] text-[#1F1F1F] hover:brightness-105 shadow-sm'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2 flex-1 min-w-0">
-                              {/* Drag Handle to drag up or down */}
-                              <div 
-                                className={`cursor-grab active:cursor-grabbing p-0.5 transition-colors ${
-                                  task.completed 
-                                    ? 'text-white/30 group-hover:text-white/70' 
-                                    : 'text-[#1F1F1F]/40 group-hover:text-[#1F1F1F]'
-                                }`}
-                                title="Arrastrar para mover arriba o abajo"
-                              >
-                                <GripVertical className="w-3.5 h-3.5" />
-                              </div>
-
-                              {/* Checkbox */}
-                              <button
-                                onClick={() => onToggleGoalTask(goal.id, task.id)}
-                                className={`w-4 h-4 rounded-md border flex items-center justify-center transition-all shrink-0 ${
-                                  task.completed
-                                    ? 'bg-[#1F1F1F] border-[#1F1F1F] text-[#FFD1DB] shadow-xs'
-                                    : 'border-[#1F1F1F]/40 bg-white/30 hover:border-[#1F1F1F]'
-                                }`}
-                                title={task.completed ? 'Marcar como pendiente' : 'Marcar como cumplida'}
-                              >
-                                {task.completed && <Check className="w-3 h-3 stroke-[3]" />}
-                              </button>
-
-                              {/* Priority Color Dot - Clickable to cycle Red -> Yellow -> Green */}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const nextP = getNextPriority(priorityKey);
-                                  onUpdateGoalTaskPriority(goal.id, task.id, nextP);
-                                }}
-                                className={`w-3 h-3 rounded-full transition-all shrink-0 active:scale-75 shadow-xs ${pConfig.dotClass}`}
-                                title={`Prioridad: ${pConfig.label}. Haz clic para cambiar de color`}
-                                aria-label={`Prioridad: ${pConfig.label}`}
-                              />
-
-                              <div className="flex-1 min-w-0">
-                                <span className={`text-xs block leading-tight truncate ${
-                                  task.completed ? 'line-through text-white/40' : 'text-[#1F1F1F] font-bold'
-                                }`}>
-                                  <span className={`font-mono mr-1.5 text-[10px] ${
-                                    task.completed ? 'text-white/30' : 'text-[#1F1F1F]/60'
-                                  }`}>
-                                    #{index + 1}
-                                  </span>
-                                  {task.title}
-                                </span>
-                              </div>
+                      <>
+                        {/* Pinned Tasks */}
+                        {visibleTasks.filter((t) => t.isPinned).length > 0 && (
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-1.5 text-[10px] font-extrabold text-[#FF99AA] uppercase tracking-wider px-1 pt-0.5">
+                              <Pin className="w-3 h-3 fill-[#FF99AA] text-[#FF99AA]" />
+                              <span>Tareas fijadas ({visibleTasks.filter((t) => t.isPinned).length})</span>
                             </div>
+                            {visibleTasks
+                              .filter((t) => t.isPinned)
+                              .map((task, pIdx) => {
+                                const priorityKey = normalizePriority(task.priority);
+                                const pConfig = CLEAN_PRIORITIES.find((p) => p.key === priorityKey) || CLEAN_PRIORITIES[0];
+                                const isDragging = draggedTaskId === task.id;
+                                const isDragOver = draggedOverTaskId === task.id;
 
-                            <button
-                              onClick={() => onDeleteGoalTask(goal.id, task.id)}
-                              className={`p-1 rounded-lg transition-colors shrink-0 ${
-                                task.completed 
-                                  ? 'text-white/30 hover:text-[#FF688B] hover:bg-white/10' 
-                                  : 'text-[#1F1F1F]/40 hover:text-rose-600 hover:bg-black/5'
-                              }`}
-                              title="Eliminar tarea"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
+                                return (
+                                  <div
+                                    key={task.id}
+                                    draggable={true}
+                                    onDragStart={(e) => handleDragStart(e, task.id)}
+                                    onDragOver={(e) => handleDragOver(e, task.id)}
+                                    onDragLeave={handleDragLeave}
+                                    onDrop={(e) => handleDrop(e, goal, task.id)}
+                                    className={`p-2 rounded-xl border border-l-4 transition-all duration-150 flex items-center justify-between gap-2 select-none group ${pConfig.borderClass} ${
+                                      isDragging 
+                                        ? 'opacity-30 scale-95 border-dashed border-[#5C464B]' 
+                                        : isDragOver
+                                        ? 'bg-[#FFD1DB] ring-2 ring-[#FF688B] scale-[1.01]'
+                                        : task.completed
+                                        ? 'bg-[#191919] border-[#5C464B]/20 opacity-60 text-white/40'
+                                        : 'bg-[#FFD1DB] border-[#FF688B]/60 text-[#1F1F1F] shadow-[0_0_12px_rgba(255,104,139,0.25)] hover:brightness-105'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                                      {/* Drag Handle */}
+                                      <div 
+                                        className={`cursor-grab active:cursor-grabbing p-0.5 transition-colors ${
+                                          task.completed 
+                                            ? 'text-white/30 group-hover:text-white/70' 
+                                            : 'text-[#1F1F1F]/40 group-hover:text-[#1F1F1F]'
+                                        }`}
+                                        title="Arrastrar para mover arriba o abajo"
+                                      >
+                                        <GripVertical className="w-3.5 h-3.5" />
+                                      </div>
+
+                                      {/* Checkbox */}
+                                      <button
+                                        onClick={() => onToggleGoalTask(goal.id, task.id)}
+                                        className={`w-4 h-4 rounded-md border flex items-center justify-center transition-all shrink-0 ${
+                                          task.completed
+                                            ? 'bg-[#1F1F1F] border-[#1F1F1F] text-[#FFD1DB] shadow-xs'
+                                            : 'border-[#1F1F1F]/40 bg-white/30 hover:border-[#1F1F1F]'
+                                        }`}
+                                        title={task.completed ? 'Marcar como pendiente' : 'Marcar como cumplida'}
+                                      >
+                                        {task.completed && <Check className="w-3 h-3 stroke-[3]" />}
+                                      </button>
+
+                                      {/* Priority Color Dot */}
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const nextP = getNextPriority(priorityKey);
+                                          onUpdateGoalTaskPriority(goal.id, task.id, nextP);
+                                        }}
+                                        className={`w-3 h-3 rounded-full transition-all shrink-0 active:scale-75 shadow-xs ${pConfig.dotClass}`}
+                                        title={`Prioridad: ${pConfig.label}. Haz clic para cambiar de color`}
+                                        aria-label={`Prioridad: ${pConfig.label}`}
+                                      />
+
+                                      <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden">
+                                        <span className={`text-xs block leading-tight truncate ${
+                                          task.completed ? 'line-through text-white/40' : 'text-[#1F1F1F] font-bold'
+                                        }`}>
+                                          <span className={`font-mono mr-1.5 text-[10px] ${
+                                            task.completed ? 'text-white/30' : 'text-[#1F1F1F]/60'
+                                          }`}>
+                                            #{pIdx + 1}
+                                          </span>
+                                          {task.title}
+                                        </span>
+                                        <span 
+                                          className="inline-flex items-center gap-0.5 px-1.5 py-0.2 text-[9px] font-extrabold rounded-md bg-[#FF688B]/20 text-[#FF2E63] border border-[#FF688B]/40 shrink-0"
+                                          title="Tarea fijada en esta meta"
+                                        >
+                                          <Pin className="w-2.5 h-2.5 fill-[#FF2E63]" />
+                                          <span>Fijada</span>
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      {/* Pin Toggle Button */}
+                                      <button
+                                        type="button"
+                                        onClick={() => onTogglePinGoalTask ? onTogglePinGoalTask(goal.id, task.id) : undefined}
+                                        className="p-1 rounded-lg transition-all text-[#FF2E63] bg-[#FF688B]/20 hover:bg-[#FF688B]/35 shadow-xs"
+                                        title="Desfijar tarea"
+                                        aria-label="Desfijar tarea"
+                                      >
+                                        <Pin className="w-3.5 h-3.5 fill-[#FF2E63] stroke-[#FF2E63]" />
+                                      </button>
+
+                                      <button
+                                        onClick={() => onDeleteGoalTask(goal.id, task.id)}
+                                        className={`p-1 rounded-lg transition-colors shrink-0 ${
+                                          task.completed 
+                                            ? 'text-white/30 hover:text-[#FF688B] hover:bg-white/10' 
+                                            : 'text-[#1F1F1F]/40 hover:text-rose-600 hover:bg-black/5'
+                                        }`}
+                                        title="Eliminar tarea"
+                                      >
+                                        <X className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
                           </div>
-                        );
-                      })
+                        )}
+
+                        {/* Other Tasks */}
+                        {visibleTasks.filter((t) => !t.isPinned).length > 0 && (
+                          <div className="space-y-1.5">
+                            {visibleTasks.filter((t) => t.isPinned).length > 0 && (
+                              <div className="flex items-center gap-1.5 text-[10px] font-bold text-white/40 uppercase tracking-wider px-1 pt-1.5">
+                                <span>Otras tareas ({visibleTasks.filter((t) => !t.isPinned).length})</span>
+                              </div>
+                            )}
+                            {visibleTasks
+                              .filter((t) => !t.isPinned)
+                              .map((task, oIdx) => {
+                                const priorityKey = normalizePriority(task.priority);
+                                const pConfig = CLEAN_PRIORITIES.find((p) => p.key === priorityKey) || CLEAN_PRIORITIES[0];
+                                const isDragging = draggedTaskId === task.id;
+                                const isDragOver = draggedOverTaskId === task.id;
+                                const pinnedCount = visibleTasks.filter((t) => t.isPinned).length;
+
+                                return (
+                                  <div
+                                    key={task.id}
+                                    draggable={true}
+                                    onDragStart={(e) => handleDragStart(e, task.id)}
+                                    onDragOver={(e) => handleDragOver(e, task.id)}
+                                    onDragLeave={handleDragLeave}
+                                    onDrop={(e) => handleDrop(e, goal, task.id)}
+                                    className={`p-2 rounded-xl border border-l-4 transition-all duration-150 flex items-center justify-between gap-2 select-none group ${pConfig.borderClass} ${
+                                      isDragging 
+                                        ? 'opacity-30 scale-95 border-dashed border-[#5C464B]' 
+                                        : isDragOver
+                                        ? 'bg-[#FFD1DB] ring-2 ring-[#FF688B] scale-[1.01]'
+                                        : task.completed
+                                        ? 'bg-[#191919] border-[#5C464B]/20 opacity-60 text-white/40'
+                                        : 'bg-[#FFD1DB] border-[#FFD1DB] text-[#1F1F1F] hover:brightness-105 shadow-sm'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                                      {/* Drag Handle */}
+                                      <div 
+                                        className={`cursor-grab active:cursor-grabbing p-0.5 transition-colors ${
+                                          task.completed 
+                                            ? 'text-white/30 group-hover:text-white/70' 
+                                            : 'text-[#1F1F1F]/40 group-hover:text-[#1F1F1F]'
+                                        }`}
+                                        title="Arrastrar para mover arriba o abajo"
+                                      >
+                                        <GripVertical className="w-3.5 h-3.5" />
+                                      </div>
+
+                                      {/* Checkbox */}
+                                      <button
+                                        onClick={() => onToggleGoalTask(goal.id, task.id)}
+                                        className={`w-4 h-4 rounded-md border flex items-center justify-center transition-all shrink-0 ${
+                                          task.completed
+                                            ? 'bg-[#1F1F1F] border-[#1F1F1F] text-[#FFD1DB] shadow-xs'
+                                            : 'border-[#1F1F1F]/40 bg-white/30 hover:border-[#1F1F1F]'
+                                        }`}
+                                        title={task.completed ? 'Marcar como pendiente' : 'Marcar como cumplida'}
+                                      >
+                                        {task.completed && <Check className="w-3 h-3 stroke-[3]" />}
+                                      </button>
+
+                                      {/* Priority Color Dot */}
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const nextP = getNextPriority(priorityKey);
+                                          onUpdateGoalTaskPriority(goal.id, task.id, nextP);
+                                        }}
+                                        className={`w-3 h-3 rounded-full transition-all shrink-0 active:scale-75 shadow-xs ${pConfig.dotClass}`}
+                                        title={`Prioridad: ${pConfig.label}. Haz clic para cambiar de color`}
+                                        aria-label={`Prioridad: ${pConfig.label}`}
+                                      />
+
+                                      <div className="flex-1 min-w-0">
+                                        <span className={`text-xs block leading-tight truncate ${
+                                          task.completed ? 'line-through text-white/40' : 'text-[#1F1F1F] font-bold'
+                                        }`}>
+                                          <span className={`font-mono mr-1.5 text-[10px] ${
+                                            task.completed ? 'text-white/30' : 'text-[#1F1F1F]/60'
+                                          }`}>
+                                            #{pinnedCount + oIdx + 1}
+                                          </span>
+                                          {task.title}
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      {/* Pin Toggle Button */}
+                                      <button
+                                        type="button"
+                                        onClick={() => onTogglePinGoalTask ? onTogglePinGoalTask(goal.id, task.id) : undefined}
+                                        className={`p-1 rounded-lg transition-all ${
+                                          task.completed
+                                            ? 'text-white/30 hover:text-white/70 hover:bg-white/10'
+                                            : 'text-[#1F1F1F]/40 hover:text-[#1F1F1F] hover:bg-black/5'
+                                        }`}
+                                        title="Fijar tarea arriba"
+                                        aria-label="Fijar tarea arriba"
+                                      >
+                                        <Pin className="w-3.5 h-3.5" />
+                                      </button>
+
+                                      <button
+                                        onClick={() => onDeleteGoalTask(goal.id, task.id)}
+                                        className={`p-1 rounded-lg transition-colors shrink-0 ${
+                                          task.completed 
+                                            ? 'text-white/30 hover:text-[#FF688B] hover:bg-white/10' 
+                                            : 'text-[#1F1F1F]/40 hover:text-rose-600 hover:bg-black/5'
+                                        }`}
+                                        title="Eliminar tarea"
+                                      >
+                                        <X className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
 
-              </div>
+                </div>
+              </React.Fragment>
             );
           })}
         </div>
@@ -847,6 +1096,34 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
                 </div>
               </div>
 
+              {/* Pin entire goal toggle */}
+              <div className="flex items-center justify-between p-3 bg-[#1F1F1F] border border-[#5C464B]/50 rounded-xl">
+                <div className="flex items-center gap-2.5">
+                  <span className={`p-1.5 rounded-lg border transition-all ${
+                    newGoalIsPinned
+                      ? 'bg-[#FF688B]/20 border-[#FF688B]/50 text-[#FF688B]'
+                      : 'bg-black/20 border-white/10 text-white/40'
+                  }`}>
+                    <Pin className={`w-3.5 h-3.5 ${newGoalIsPinned ? 'fill-[#FF688B]' : ''}`} />
+                  </span>
+                  <div>
+                    <span className="text-xs font-bold text-white block">Fijar lista de tareas</span>
+                    <span className="text-[10px] text-white/50 block">Aparecerá en la parte superior</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setNewGoalIsPinned(!newGoalIsPinned)}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg border transition-all ${
+                    newGoalIsPinned
+                      ? 'bg-[#FF688B]/20 border-[#FF688B] text-[#FF688B]'
+                      : 'bg-[#252525] border-[#5C464B]/50 text-white/50 hover:text-white'
+                  }`}
+                >
+                  {newGoalIsPinned ? 'Fijada' : 'No fijar'}
+                </button>
+              </div>
+
               <div className="pt-3 border-t border-[#5C464B]/40 flex items-center justify-end gap-2">
                 <button
                   type="button"
@@ -923,6 +1200,25 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
                   className="w-full px-3.5 py-2.5 bg-[#1F1F1F] border border-[#5C464B]/50 rounded-xl focus:outline-hidden focus:border-[#FF688B] text-xs text-white placeholder-white/40 font-mono leading-relaxed"
                   autoFocus
                 />
+              </div>
+
+              {/* Pin toggle for bulk tasks */}
+              <div className="flex items-center justify-between p-2.5 bg-[#1F1F1F] border border-[#5C464B]/50 rounded-xl">
+                <div className="flex items-center gap-2">
+                  <Pin className={`w-3.5 h-3.5 ${bulkAddIsPinned ? 'fill-[#FF688B] text-[#FF688B]' : 'text-white/40'}`} />
+                  <span className="text-xs font-bold text-white">Fijar estas tareas arriba</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBulkAddIsPinned(!bulkAddIsPinned)}
+                  className={`px-2.5 py-1 text-xs font-bold rounded-lg border transition-all ${
+                    bulkAddIsPinned
+                      ? 'bg-[#FF688B]/20 border-[#FF688B] text-[#FF688B]'
+                      : 'bg-[#252525] border-[#5C464B]/50 text-white/50 hover:text-white'
+                  }`}
+                >
+                  {bulkAddIsPinned ? 'Activado' : 'Desactivado'}
+                </button>
               </div>
 
               <div className="pt-2 border-t border-[#5C464B]/40 flex items-center justify-end gap-2">
@@ -1033,6 +1329,34 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
                     />
                   ))}
                 </div>
+              </div>
+
+              {/* Pin entire goal toggle */}
+              <div className="flex items-center justify-between p-3 bg-[#1F1F1F] border border-[#5C464B]/50 rounded-xl">
+                <div className="flex items-center gap-2.5">
+                  <span className={`p-1.5 rounded-lg border transition-all ${
+                    editGoalIsPinned
+                      ? 'bg-[#FF688B]/20 border-[#FF688B]/50 text-[#FF688B]'
+                      : 'bg-black/20 border-white/10 text-white/40'
+                  }`}>
+                    <Pin className={`w-3.5 h-3.5 ${editGoalIsPinned ? 'fill-[#FF688B]' : ''}`} />
+                  </span>
+                  <div>
+                    <span className="text-xs font-bold text-white block">Fijar lista de tareas</span>
+                    <span className="text-[10px] text-white/50 block">Mantener fija arriba en el tablero</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditGoalIsPinned(!editGoalIsPinned)}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg border transition-all ${
+                    editGoalIsPinned
+                      ? 'bg-[#FF688B]/20 border-[#FF688B] text-[#FF688B]'
+                      : 'bg-[#252525] border-[#5C464B]/50 text-white/50 hover:text-white'
+                  }`}
+                >
+                  {editGoalIsPinned ? 'Fijada' : 'No fijar'}
+                </button>
               </div>
 
               <div className="pt-3 border-t border-[#5C464B]/40 flex items-center justify-end gap-2">

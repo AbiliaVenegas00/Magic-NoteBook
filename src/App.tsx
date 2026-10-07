@@ -686,6 +686,48 @@ export default function App() {
     }
   };
 
+  const handleTogglePinGoal = async (goalId: string, isPinned?: boolean) => {
+    const target = goals.find((g) => g.id === goalId);
+    if (!target) return;
+
+    const nextPinned = isPinned !== undefined ? isPinned : !target.isPinned;
+    const updatedGoal: Goal = { ...target, isPinned: nextPinned };
+
+    setGoals((prev) => {
+      const remaining = prev.filter((g) => g.id !== goalId);
+      let next: Goal[];
+      if (nextPinned) {
+        const firstUnpinned = remaining.findIndex((g) => !g.isPinned);
+        if (firstUnpinned === -1) {
+          next = [...remaining, updatedGoal];
+        } else {
+          next = [
+            ...remaining.slice(0, firstUnpinned),
+            updatedGoal,
+            ...remaining.slice(firstUnpinned),
+          ];
+        }
+      } else {
+        const firstUnpinned = remaining.findIndex((g) => !g.isPinned);
+        if (firstUnpinned === -1) {
+          next = [...remaining, updatedGoal];
+        } else {
+          next = [
+            ...remaining.slice(0, firstUnpinned),
+            updatedGoal,
+            ...remaining.slice(firstUnpinned),
+          ];
+        }
+      }
+      saveGoalsToStorage(next, user?.uid);
+      return next;
+    });
+
+    if (user) {
+      await syncGoalToFirestore(user.uid, updatedGoal);
+    }
+  };
+
   const handleDeleteGoal = async (goalId: string) => {
     setGoals((prev) => {
       const next = prev.filter((g) => g.id !== goalId);
@@ -725,7 +767,12 @@ export default function App() {
     }
   };
 
-  const handleAddGoalTask = async (goalId: string, taskTitle: string, priority: PriorityLevel = 'important') => {
+  const handleAddGoalTask = async (
+    goalId: string, 
+    taskTitle: string, 
+    priority: PriorityLevel = 'important',
+    isPinned: boolean = false
+  ) => {
     const target = goals.find((g) => g.id === goalId);
     if (!target) return;
 
@@ -734,11 +781,84 @@ export default function App() {
       title: taskTitle.trim(),
       completed: false,
       priority,
+      isPinned,
     };
+
+    let updatedTasks: GoalTask[];
+    if (isPinned) {
+      const firstUnpinnedIndex = target.tasks.findIndex((t) => !t.isPinned);
+      if (firstUnpinnedIndex === -1) {
+        updatedTasks = [...target.tasks, newTask];
+      } else {
+        updatedTasks = [
+          ...target.tasks.slice(0, firstUnpinnedIndex),
+          newTask,
+          ...target.tasks.slice(firstUnpinnedIndex),
+        ];
+      }
+    } else {
+      updatedTasks = [...target.tasks, newTask];
+    }
+
     const updatedGoal: Goal = {
       ...target,
-      tasks: [...target.tasks, newTask],
+      tasks: updatedTasks,
     };
+    setGoals((prev) => {
+      const next = prev.map((g) => (g.id === goalId ? updatedGoal : g));
+      saveGoalsToStorage(next, user?.uid);
+      return next;
+    });
+
+    if (user) {
+      await syncGoalToFirestore(user.uid, updatedGoal);
+    }
+  };
+
+  const handleTogglePinGoalTask = async (goalId: string, taskId: string, isPinned?: boolean) => {
+    const target = goals.find((g) => g.id === goalId);
+    if (!target) return;
+
+    const task = target.tasks.find((t) => t.id === taskId);
+    if (!task) return;
+
+    const nextPinned = isPinned !== undefined ? isPinned : !task.isPinned;
+    const updatedTask: GoalTask = { ...task, isPinned: nextPinned };
+
+    const remainingTasks = target.tasks.filter((t) => t.id !== taskId);
+    let updatedTasks: GoalTask[];
+
+    if (nextPinned) {
+      // Move to top among pinned tasks
+      const firstUnpinnedIndex = remainingTasks.findIndex((t) => !t.isPinned);
+      if (firstUnpinnedIndex === -1) {
+        updatedTasks = [...remainingTasks, updatedTask];
+      } else {
+        updatedTasks = [
+          ...remainingTasks.slice(0, firstUnpinnedIndex),
+          updatedTask,
+          ...remainingTasks.slice(firstUnpinnedIndex),
+        ];
+      }
+    } else {
+      // Unpinned: place at the start of unpinned tasks
+      const firstUnpinnedIndex = remainingTasks.findIndex((t) => !t.isPinned);
+      if (firstUnpinnedIndex === -1) {
+        updatedTasks = [...remainingTasks, updatedTask];
+      } else {
+        updatedTasks = [
+          ...remainingTasks.slice(0, firstUnpinnedIndex),
+          updatedTask,
+          ...remainingTasks.slice(firstUnpinnedIndex),
+        ];
+      }
+    }
+
+    const updatedGoal: Goal = {
+      ...target,
+      tasks: updatedTasks,
+    };
+
     setGoals((prev) => {
       const next = prev.map((g) => (g.id === goalId ? updatedGoal : g));
       saveGoalsToStorage(next, user?.uid);
@@ -988,10 +1108,12 @@ export default function App() {
             onAddGoal={handleAddGoal}
             onUpdateGoal={handleUpdateGoal}
             onDeleteGoal={handleDeleteGoal}
+            onTogglePinGoal={handleTogglePinGoal}
             onToggleGoalTask={handleToggleGoalTask}
             onAddGoalTask={handleAddGoalTask}
             onDeleteGoalTask={handleDeleteGoalTask}
             onUpdateGoalTaskPriority={handleUpdateGoalTaskPriority}
+            onTogglePinGoalTask={handleTogglePinGoalTask}
             onReorderGoalTasks={handleReorderGoalTasks}
             isCreateGoalModalOpen={isCreateGoalModalOpen}
             onOpenCreateGoalModal={() => setIsCreateGoalModalOpen(true)}

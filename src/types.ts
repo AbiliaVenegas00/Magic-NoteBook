@@ -65,6 +65,7 @@ export interface GoalTask {
   completed: boolean;
   completedAt?: string;
   priority?: PriorityLevel | GoalPriority;
+  isPinned?: boolean;
 }
 
 export interface Goal {
@@ -77,6 +78,7 @@ export interface Goal {
   createdAt: string;
   color?: string;
   tasks: GoalTask[];
+  isPinned?: boolean;
 }
 
 export interface FilterOptions {
