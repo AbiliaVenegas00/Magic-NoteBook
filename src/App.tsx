@@ -61,6 +61,8 @@ import { TaskDetailModal } from './components/TaskDetailModal';
 import { GoalsTrackerView } from './components/GoalsTrackerView';
 import { QuickNotesView } from './components/QuickNotesView';
 import { LoginCalloutBanner } from './components/LoginCalloutBanner';
+import { GoalCompletedCelebrationModal } from './components/GoalCompletedCelebrationModal';
+import { fireGoalCompletionConfetti } from './utils/confetti';
 
 /**
  * Automatically identifies and collapses duplicate tasks
@@ -152,6 +154,7 @@ export default function App() {
   // Modal controls
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [isCreateGoalModalOpen, setIsCreateGoalModalOpen] = useState(false);
+  const [celebratedGoal, setCelebratedGoal] = useState<Goal | null>(null);
   const [selectedTask, setSelectedTask] = useState<AssignmentTask | null>(null);
   const [taskModalDefaults, setTaskModalDefaults] = useState<{
     date?: string;
@@ -744,18 +747,37 @@ export default function App() {
     const target = goals.find((g) => g.id === goalId);
     if (!target) return;
 
+    // Check if toggling this task turns it from pending -> completed
+    const existingTask = target.tasks.find((t) => t.id === taskId);
+    const willBeCompleted = existingTask ? !existingTask.completed : false;
+
+    const updatedTasks = target.tasks.map((t) => {
+      if (t.id !== taskId) return t;
+      const completed = !t.completed;
+      return {
+        ...t,
+        completed,
+        completedAt: completed ? new Date().toISOString() : undefined,
+      };
+    });
+
     const updatedGoal: Goal = {
       ...target,
-      tasks: target.tasks.map((t) => {
-        if (t.id !== taskId) return t;
-        const completed = !t.completed;
-        return {
-          ...t,
-          completed,
-          completedAt: completed ? new Date().toISOString() : undefined,
-        };
-      }),
+      tasks: updatedTasks,
     };
+
+    // Check if before this action, the goal was NOT fully completed,
+    // and NOW with this toggle, every single task in the goal is completed
+    const totalTasks = updatedTasks.length;
+    const wasCompletedBefore = target.tasks.length > 0 && target.tasks.every((t) => t.completed);
+    const isNowAllCompleted = totalTasks > 0 && updatedTasks.every((t) => t.completed);
+
+    if (willBeCompleted && !wasCompletedBefore && isNowAllCompleted) {
+      // Trigger celebration sound & confetti
+      fireGoalCompletionConfetti();
+      setCelebratedGoal(updatedGoal);
+    }
+
     setGoals((prev) => {
       const next = prev.map((g) => (g.id === goalId ? updatedGoal : g));
       saveGoalsToStorage(next, user?.uid);
@@ -1208,6 +1230,13 @@ export default function App() {
         onSaveTask={handleSaveTask}
         onDeleteTask={handleDeleteTask}
         onDuplicateTask={handleDuplicateTask}
+      />
+
+      {/* Goal Completed Celebration Modal */}
+      <GoalCompletedCelebrationModal
+        isOpen={!!celebratedGoal}
+        goalTitle={celebratedGoal?.title || ''}
+        onClose={() => setCelebratedGoal(null)}
       />
     </div>
   );

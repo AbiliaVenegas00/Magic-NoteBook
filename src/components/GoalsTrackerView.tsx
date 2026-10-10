@@ -11,7 +11,9 @@ import {
   Clock,
   GripVertical,
   Pencil,
-  Pin
+  Pin,
+  Sparkles,
+  Trophy
 } from 'lucide-react';
 import { Goal, GoalTask, PriorityLevel, GoalPriority } from '../types';
 
@@ -654,6 +656,20 @@ export const GoalsTrackerView: React.FC<GoalsTrackerViewProps> = ({
                         )}
                       </div>
                     </div>
+
+                    {/* Completion celebratory mini-banner */}
+                    {isFinished && (
+                      <div className="mt-2 mb-1 p-2 rounded-xl bg-gradient-to-r from-emerald-950/60 to-teal-950/40 border border-emerald-500/40 flex items-center justify-between text-xs text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.15)] animate-in fade-in zoom-in-95 duration-300">
+                        <div className="flex items-center gap-1.5 font-black">
+                          <Trophy className="w-4 h-4 text-emerald-400 fill-emerald-500/30" />
+                          <span>¡Completaste toda la meta! 🎉</span>
+                        </div>
+                        <span className="flex items-center gap-1 text-[11px] font-bold text-emerald-400/90 bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                          <Sparkles className="w-3 h-3 text-amber-300 fill-amber-300" />
+                          <span>100%</span>
+                        </span>
+                      </div>
+                    )}
 
                     {/* Clean Date Limit Footer */}
                     {goal.targetDate && (
