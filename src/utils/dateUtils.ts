@@ -71,10 +71,9 @@ export function formatHumanDate(dateStr: string): string {
 }
 
 export function formatMonthYear(date: Date): string {
-  return date.toLocaleDateString('en-US', {
-    month: 'long',
-    year: 'numeric',
-  });
+  const monthName = date.toLocaleDateString('es-ES', { month: 'long' });
+  const capitalizedMonth = monthName.charAt(0).toUpperCase() + monthName.slice(1);
+  return `${capitalizedMonth} ${date.getFullYear()}`;
 }
 
 export function getMonthDaysGrid(year: number, month: number): { date: Date; dateStr: string; isCurrentMonth: boolean }[] {

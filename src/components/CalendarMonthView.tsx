@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, Check, Clock, Calendar as CalendarIcon, X, ChevronRight } from 'lucide-react';
+import { Plus, Check, Clock, Calendar as CalendarIcon, X, ChevronRight, ChevronLeft } from 'lucide-react';
 import { AssignmentTask } from '../types';
 import { getMonthDaysGrid, getTodayDateString, formatTimeSlot, isOverdue } from '../utils/dateUtils';
 import { PRIORITY_CONFIG } from '../utils/themeHelpers';
@@ -11,6 +11,9 @@ interface CalendarMonthViewProps {
   onToggleTaskComplete: (taskId: string, e: React.MouseEvent) => void;
   onSelectDay: (dateStr: string) => void;
   onCreateTaskForDay: (dateStr: string) => void;
+  onNavigateDate?: (direction: 'prev' | 'next' | 'today') => void;
+  onRescheduleAllToToday?: () => void;
+  onSwitchToBoard?: () => void;
 }
 
 const WEEKDAYS = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'];
@@ -32,11 +35,15 @@ export const CalendarMonthView: React.FC<CalendarMonthViewProps> = ({
   onToggleTaskComplete,
   onSelectDay,
   onCreateTaskForDay,
+  onNavigateDate,
 }) => {
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
   const daysGrid = getMonthDaysGrid(year, month);
   const todayStr = getTodayDateString();
+
+  const monthName = currentDate.toLocaleDateString('es-ES', { month: 'long' });
+  const capitalizedMonth = monthName.charAt(0).toUpperCase() + monthName.slice(1);
 
   const [selectedDayModal, setSelectedDayModal] = React.useState<string | null>(null);
 
@@ -71,6 +78,48 @@ export const CalendarMonthView: React.FC<CalendarMonthViewProps> = ({
       className="relative bg-[#1F1F1F] border border-[#5C464B]/60 rounded-2xl sm:rounded-3xl overflow-hidden shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9)] transition-all duration-300 mt-2.5 sm:mt-3.5" 
       id="calendar-month-container"
     >
+      {/* Month & Year Bar above Weekdays */}
+      <div className="relative z-10 flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-3.5 bg-[#2B1D21] border-b border-[#5C464B]/50">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className="w-8 h-8 rounded-xl bg-[#3D2C30] border border-[#5C464B]/60 flex items-center justify-center text-[#FF688B] shadow-xs">
+            <CalendarIcon className="w-4 h-4 stroke-[2.2]" />
+          </div>
+          <div>
+            <h2 className="text-base sm:text-lg font-black text-[#FFD1DB] tracking-tight capitalize flex items-center gap-2">
+              <span>{capitalizedMonth}</span>
+              <span className="text-[#FF688B] font-bold">{year}</span>
+            </h2>
+          </div>
+        </div>
+
+        {onNavigateDate && (
+          <div className="flex items-center gap-1 sm:gap-1.5">
+            <button
+              onClick={() => onNavigateDate('prev')}
+              className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-[#FFD1DB] hover:bg-white/10 active:scale-95 transition-all"
+              title="Mes anterior"
+              aria-label="Mes anterior"
+            >
+              <ChevronLeft className="w-4 h-4 stroke-[2.5]" />
+            </button>
+            <button
+              onClick={() => onNavigateDate('today')}
+              className="px-2.5 sm:px-3 py-1 text-[11px] sm:text-xs font-extrabold rounded-full bg-[#1F1F1F] text-[#FFD1DB] hover:bg-black/60 border border-[#5C464B]/60 active:scale-95 transition-all shadow-xs"
+            >
+              Hoy
+            </button>
+            <button
+              onClick={() => onNavigateDate('next')}
+              className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-[#FFD1DB] hover:bg-white/10 active:scale-95 transition-all"
+              title="Mes siguiente"
+              aria-label="Mes siguiente"
+            >
+              <ChevronRight className="w-4 h-4 stroke-[2.5]" />
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Weekday Header Row - styled with #3D2C30 background */}
       <div className="relative z-10 grid grid-cols-7 border-b border-[#5C464B]/50 bg-[#3D2C30] text-center py-2 sm:py-3 px-1 sm:px-2">
         {WEEKDAYS.map((day) => (

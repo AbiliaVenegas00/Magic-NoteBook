@@ -1143,6 +1143,7 @@ export default function App() {
                 }}
                 onRescheduleAllToToday={handleRescheduleAllToToday}
                 onSwitchToBoard={() => setViewMode('board')}
+                onNavigateDate={handleNavigateDate}
               />
             )}
 

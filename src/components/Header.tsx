@@ -214,8 +214,8 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </div>
 
-            {/* Date Navigator Pill (Desktop) */}
-            {mainSection === 'calendar' && (
+            {/* Date Navigator Pill (Desktop) - only shown when in calendar and not in month view */}
+            {mainSection === 'calendar' && viewMode !== 'month' && (
               <div className="flex items-center gap-1.5">
                 <button
                   id="btn-nav-prev"
@@ -473,8 +473,8 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* MOBILE COMPACT CALENDAR DATE SUB-BAR (visible when in calendar and menu is closed) */}
-        {mainSection === 'calendar' && !mobileMenuOpen && (
+        {/* MOBILE COMPACT CALENDAR DATE SUB-BAR (visible when in calendar and menu is closed, but hidden in month view since MonthView has its own controls) */}
+        {mainSection === 'calendar' && viewMode !== 'month' && !mobileMenuOpen && (
           <div className="flex lg:hidden items-center justify-between pt-2 mt-1.5 border-t border-[#E5A0B6]/60">
             <div className="flex items-center gap-1">
               <button
