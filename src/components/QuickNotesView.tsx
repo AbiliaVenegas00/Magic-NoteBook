@@ -10,20 +10,14 @@ import {
   Check, 
   X,
   Palette,
-  Highlighter,
-  Bold,
-  Italic,
-  Underline as UnderlineIcon,
-  Strikethrough,
-  List,
-  CheckSquare,
-  Eye,
-  FileCode,
   Maximize2,
   Minimize2,
   RotateCcw
 } from 'lucide-react';
 import { QuickNote } from '../types';
+import { RichNoteEditor, HIGHLIGHT_COLORS, HighlightColorOption, normalizeMultilineFormatting } from './RichNoteEditor';
+
+export { HIGHLIGHT_COLORS, type HighlightColorOption };
 
 interface QuickNotesViewProps {
   notes: QuickNote[];
@@ -43,60 +37,6 @@ const NOTE_COLORS = [
 ];
 
 /**
- * Applies Markdown/custom styling wrappers to the current textarea selection.
- */
-function insertFormatting(
-  textarea: HTMLTextAreaElement | null,
-  prefix: string,
-  suffix: string,
-  placeholder: string,
-  currentValue: string,
-  setValue: (val: string) => void
-) {
-  if (!textarea) return;
-
-  const start = textarea.selectionStart;
-  const end = textarea.selectionEnd;
-  const selected = currentValue.slice(start, end);
-  const textToInsert = selected || placeholder;
-  const nextValue = currentValue.slice(0, start) + prefix + textToInsert + suffix + currentValue.slice(end);
-
-  setValue(nextValue);
-
-  setTimeout(() => {
-    textarea.focus();
-    if (selected) {
-      textarea.setSelectionRange(start + prefix.length, start + prefix.length + selected.length);
-    } else {
-      textarea.setSelectionRange(start + prefix.length, start + prefix.length + placeholder.length);
-    }
-  }, 0);
-}
-
-function insertLinePrefix(
-  textarea: HTMLTextAreaElement | null,
-  linePrefix: string,
-  currentValue: string,
-  setValue: (val: string) => void
-) {
-  if (!textarea) return;
-
-  const start = textarea.selectionStart;
-  const end = textarea.selectionEnd;
-  const before = currentValue.slice(0, start);
-  const lastNewline = before.lastIndexOf('\n');
-  const lineStart = lastNewline === -1 ? 0 : lastNewline + 1;
-
-  const nextValue = currentValue.slice(0, lineStart) + linePrefix + currentValue.slice(lineStart);
-  setValue(nextValue);
-
-  setTimeout(() => {
-    textarea.focus();
-    textarea.setSelectionRange(start + linePrefix.length, end + linePrefix.length);
-  }, 0);
-}
-
-/**
  * Rich Formatted Content Renderer for Note Cards and Previews
  */
 interface FormattedNoteProps {
@@ -112,7 +52,8 @@ const FormattedNoteContent: React.FC<FormattedNoteProps> = ({
 }) => {
   if (!content) return null;
 
-  const lines = content.split('\n');
+  const normalized = normalizeMultilineFormatting(content);
+  const lines = normalized.split('\n');
 
   return (
     <div className="space-y-1.5 leading-relaxed text-xs">
@@ -188,7 +129,7 @@ const FormattedNoteContent: React.FC<FormattedNoteProps> = ({
 
 /**
  * Parses inline formatting tags:
- * - Highlight: ==text== or ==rose:text== or ==green:text==
+ * - Highlight: ==text== or ==rose:text== or ==green:text==, ==blue:text==, ==purple:text==, ==orange:text==
  * - Bold: **text**
  * - Italic: *text*
  * - Underline: <u>text</u> or __text__
@@ -197,8 +138,8 @@ const FormattedNoteContent: React.FC<FormattedNoteProps> = ({
 const RenderInlineFormatting: React.FC<{ text: string }> = ({ text }) => {
   // Regex tokenizing all supported inline tags
   const tokens = useMemo(() => {
-    const regex = /(==(?:rose:|green:)?[\s\S]+?==|\*\*[\s\S]+?\*\*|\*[\s\S]+?\*|<u>[\s\S]+?<\/u>|__[\s\S]+?__|~~[\s\S]+?~~)/g;
-    const parts: { type: string; content: string; extra?: string }[] = [];
+    const regex = /(==(?:[a-zA-Z]+:)?[\s\S]+?==|\*\*[\s\S]+?\*\*|\*[\s\S]+?\*|<u>[\s\S]+?<\/u>|__[\s\S]+?__|~~[\s\S]+?~~)/g;
+    const parts: { type: string; content: string; colorKey?: string }[] = [];
     let lastIndex = 0;
     let match: RegExpExecArray | null;
 
@@ -209,14 +150,16 @@ const RenderInlineFormatting: React.FC<{ text: string }> = ({ text }) => {
 
       const raw = match[0];
       if (raw.startsWith('==') && raw.endsWith('==')) {
-        const inner = raw.slice(2, -2);
-        if (inner.startsWith('rose:')) {
-          parts.push({ type: 'highlight_rose', content: inner.slice(5) });
-        } else if (inner.startsWith('green:')) {
-          parts.push({ type: 'highlight_green', content: inner.slice(6) });
-        } else {
-          parts.push({ type: 'highlight', content: inner });
+        let inner = raw.slice(2, -2).replace(/==/g, '');
+        const colonIdx = inner.indexOf(':');
+        let colorKey = 'rose';
+        let content = inner;
+        if (colonIdx > 0 && /^[a-zA-Z]+$/.test(inner.slice(0, colonIdx))) {
+          colorKey = inner.slice(0, colonIdx);
+          content = inner.slice(colonIdx + 1);
         }
+        content = content.replace(/^[a-zA-Z]+:/, '');
+        parts.push({ type: 'highlight', content, colorKey });
       } else if (raw.startsWith('**') && raw.endsWith('**')) {
         parts.push({ type: 'bold', content: raw.slice(2, -2) });
       } else if (raw.startsWith('*') && raw.endsWith('*')) {
@@ -243,36 +186,20 @@ const RenderInlineFormatting: React.FC<{ text: string }> = ({ text }) => {
     <>
       {tokens.map((token, i) => {
         switch (token.type) {
-          case 'highlight':
-            // Glowing vibrant yellow highlighter
+          case 'highlight': {
+            const foundColor = HIGHLIGHT_COLORS.find(
+              (c) => c.id === token.colorKey || c.prefix === `${token.colorKey}:`
+            );
+            const markClass = foundColor ? foundColor.markClass : HIGHLIGHT_COLORS[0].markClass;
             return (
-              <mark 
-                key={i} 
-                className="bg-amber-400/25 text-amber-200 px-1 py-0.2 rounded font-semibold border-b border-amber-400/60 shadow-[0_0_8px_rgba(251,191,36,0.15)]"
+              <mark
+                key={i}
+                className={`${markClass} rounded px-1 py-0.5 font-medium inline`}
               >
                 {token.content}
               </mark>
             );
-          case 'highlight_rose':
-            // Glowing warm rose highlighter
-            return (
-              <mark 
-                key={i} 
-                className="bg-[#FF6688]/30 text-[#FFE8EF] px-1 py-0.2 rounded font-semibold border-b border-[#FF6688]/70 shadow-[0_0_8px_rgba(255,102,136,0.2)]"
-              >
-                {token.content}
-              </mark>
-            );
-          case 'highlight_green':
-            // Glowing emerald highlighter
-            return (
-              <mark 
-                key={i} 
-                className="bg-emerald-500/25 text-emerald-200 px-1 py-0.2 rounded font-semibold border-b border-emerald-500/60 shadow-[0_0_8px_rgba(16,185,129,0.15)]"
-              >
-                {token.content}
-              </mark>
-            );
+          }
           case 'bold':
             return <strong key={i} className="font-extrabold text-white">{token.content}</strong>;
           case 'italic':
@@ -301,7 +228,6 @@ export const QuickNotesView: React.FC<QuickNotesViewProps> = ({
 }) => {
   // New Note composer state
   const [isComposerOpen, setIsComposerOpen] = useState(false);
-  const [composerMode, setComposerMode] = useState<'write' | 'preview'>('write');
   const [newTitle, setNewTitle] = useState('');
   const [newContent, setNewContent] = useState('');
   const [newColor, setNewColor] = useState(NOTE_COLORS[0].hex);
@@ -445,15 +371,20 @@ export const QuickNotesView: React.FC<QuickNotesViewProps> = ({
     window.addEventListener('mouseup', onMouseUp, true);
   };
 
-  const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
-  const editTextareaRef = useRef<HTMLTextAreaElement>(null);
+  // Highlight color state (defaults to 'rose' as per the user's current preference)
+  const [composerHighlightColor, setComposerHighlightColor] = useState<HighlightColorOption>(
+    () => HIGHLIGHT_COLORS.find((c) => c.id === 'rose') || HIGHLIGHT_COLORS[1]
+  );
+
+  const [editHighlightColor, setEditHighlightColor] = useState<HighlightColorOption>(
+    () => HIGHLIGHT_COLORS.find((c) => c.id === 'rose') || HIGHLIGHT_COLORS[1]
+  );
 
   // Search filter
   const [searchQuery, setSearchQuery] = useState('');
 
   // Edit Modal State
   const [editingNote, setEditingNote] = useState<QuickNote | null>(null);
-  const [editMode, setEditMode] = useState<'write' | 'preview'>('write');
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
   const [editColor, setEditColor] = useState('');
@@ -482,7 +413,6 @@ export const QuickNotesView: React.FC<QuickNotesViewProps> = ({
     setNewColor(NOTE_COLORS[0].hex);
     setNewIsPinned(false);
     setIsComposerOpen(false);
-    setComposerMode('write');
   };
 
   const handleOpenEdit = (note: QuickNote) => {
@@ -491,7 +421,6 @@ export const QuickNotesView: React.FC<QuickNotesViewProps> = ({
     setEditContent(note.content);
     setEditColor(note.color || NOTE_COLORS[0].hex);
     setEditIsPinned(!!note.isPinned);
-    setEditMode('write');
   };
 
   const handleSaveEdit = (e: React.FormEvent) => {
@@ -837,27 +766,6 @@ export const QuickNotesView: React.FC<QuickNotesViewProps> = ({
                     autoFocus
                   />
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <div className="flex items-center bg-black/40 border border-white/10 p-0.5 rounded-lg text-[10px] font-bold">
-                      <button
-                        type="button"
-                        onClick={() => setComposerMode('write')}
-                        className={`px-2 py-0.5 rounded-md transition-all ${
-                          composerMode === 'write' ? 'bg-[#FFD1DB] text-[#1F1F1F]' : 'text-white/60 hover:text-white'
-                        }`}
-                      >
-                        Escribir
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setComposerMode('preview')}
-                        className={`px-2 py-0.5 rounded-md transition-all ${
-                          composerMode === 'preview' ? 'bg-[#FFD1DB] text-[#1F1F1F]' : 'text-white/60 hover:text-white'
-                        }`}
-                      >
-                        Ver estilo
-                      </button>
-                    </div>
-
                     <button
                       type="button"
                       onClick={() => setNewIsPinned(!newIsPinned)}
@@ -873,106 +781,14 @@ export const QuickNotesView: React.FC<QuickNotesViewProps> = ({
                   </div>
                 </div>
 
-                {composerMode === 'write' && (
-                  <div className="shrink-0 flex flex-wrap items-center gap-1 py-1 px-1.5 bg-black/35 border border-white/10 rounded-xl text-xs text-white/70">
-                    <button
-                      type="button"
-                      onClick={() => insertFormatting(composerTextareaRef.current, '==', '==', 'texto remarcado', newContent, setNewContent)}
-                      className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-amber-400/20 hover:text-amber-300 text-amber-400 font-bold transition-all text-[11px]"
-                      title="Remarcar texto (Resaltador amarillo)"
-                    >
-                      <Highlighter className="w-3.5 h-3.5" />
-                      <span>Remarcar</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => insertFormatting(composerTextareaRef.current, '==rose:', '==', 'resaltado rosa', newContent, setNewContent)}
-                      className="flex items-center gap-1 px-1.5 py-1 rounded-lg hover:bg-[#FF6688]/20 hover:text-[#FFB0CC] text-[#FF99AA] font-bold transition-all text-[11px]"
-                      title="Remarcar en color rosa"
-                    >
-                      <span className="w-2 h-2 rounded-full bg-[#FF6688]" />
-                      <span>Rosa</span>
-                    </button>
-
-                    <div className="w-[1px] h-3.5 bg-white/15 mx-0.5" />
-
-                    <button
-                      type="button"
-                      onClick={() => insertFormatting(composerTextareaRef.current, '**', '**', 'negrita', newContent, setNewContent)}
-                      className="p-1 rounded-lg hover:bg-white/15 hover:text-white transition-all"
-                      title="Negrita"
-                    >
-                      <Bold className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => insertFormatting(composerTextareaRef.current, '*', '*', 'cursiva', newContent, setNewContent)}
-                      className="p-1 rounded-lg hover:bg-white/15 hover:text-white transition-all"
-                      title="Cursiva"
-                    >
-                      <Italic className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => insertFormatting(composerTextareaRef.current, '<u>', '</u>', 'subrayado', newContent, setNewContent)}
-                      className="p-1 rounded-lg hover:bg-white/15 hover:text-white transition-all"
-                      title="Subrayado"
-                    >
-                      <UnderlineIcon className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => insertFormatting(composerTextareaRef.current, '~~', '~~', 'tachado', newContent, setNewContent)}
-                      className="p-1 rounded-lg hover:bg-white/15 hover:text-white transition-all"
-                      title="Tachado"
-                    >
-                      <Strikethrough className="w-3.5 h-3.5" />
-                    </button>
-
-                    <div className="w-[1px] h-3.5 bg-white/15 mx-0.5" />
-
-                    <button
-                      type="button"
-                      onClick={() => insertLinePrefix(composerTextareaRef.current, '- ', newContent, setNewContent)}
-                      className="flex items-center gap-1 px-1.5 py-1 rounded-lg hover:bg-white/15 hover:text-white transition-all text-[11px]"
-                      title="Lista con viñetas"
-                    >
-                      <List className="w-3.5 h-3.5" />
-                      <span>Lista</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => insertLinePrefix(composerTextareaRef.current, '- [ ] ', newContent, setNewContent)}
-                      className="flex items-center gap-1 px-1.5 py-1 rounded-lg hover:bg-white/15 hover:text-white transition-all text-[11px]"
-                      title="Casilla de verificación / Tarea"
-                    >
-                      <CheckSquare className="w-3.5 h-3.5" />
-                      <span>Tarea</span>
-                    </button>
-                  </div>
-                )}
-
-                <div className="flex-1 flex flex-col min-h-[160px]">
-                  {composerMode === 'write' ? (
-                    <textarea
-                      ref={composerTextareaRef}
-                      value={newContent}
-                      onChange={(e) => setNewContent(e.target.value)}
-                      placeholder="Escribe lo que tienes en mente... Puedes usar los botones de arriba para remarcar o dar formato al texto."
-                      className="w-full flex-1 min-h-[160px] p-3.5 bg-[#1F1F1F] border border-[#5C464B]/60 rounded-xl text-xs text-white placeholder-white/40 focus:outline-hidden focus:border-[#FF688B] resize-y leading-relaxed font-medium"
-                    />
-                  ) : (
-                    <div className="flex-1 p-3.5 bg-black/30 border border-white/10 rounded-2xl min-h-[160px] overflow-y-auto">
-                      {newContent.trim() ? (
-                        <FormattedNoteContent content={newContent} />
-                      ) : (
-                        <span className="text-white/30 text-xs italic">Escribe texto para ver la vista previa con estilo.</span>
-                      )}
-                    </div>
-                  )}
-                </div>
+                <RichNoteEditor
+                  initialValue={newContent}
+                  onChange={setNewContent}
+                  placeholder="Escribe tu nota aquí..."
+                  minHeight="160px"
+                  activeColor={composerHighlightColor}
+                  onSelectColor={setComposerHighlightColor}
+                />
               </div>
 
               {/* Bottom bar */}
@@ -1190,27 +1006,6 @@ export const QuickNotesView: React.FC<QuickNotesViewProps> = ({
                   />
                   
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <div className="flex items-center bg-black/40 border border-white/10 p-0.5 rounded-lg text-[10px] font-bold">
-                      <button
-                        type="button"
-                        onClick={() => setEditMode('write')}
-                        className={`px-2 py-0.5 rounded-md transition-all ${
-                          editMode === 'write' ? 'bg-[#FF99AA] text-[#0F0F1A]' : 'text-white/60 hover:text-white'
-                        }`}
-                      >
-                        Escribir
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEditMode('preview')}
-                        className={`px-2 py-0.5 rounded-md transition-all ${
-                          editMode === 'preview' ? 'bg-[#FF99AA] text-[#0F0F1A]' : 'text-white/60 hover:text-white'
-                        }`}
-                      >
-                        Ver estilo
-                      </button>
-                    </div>
-
                     <button
                       type="button"
                       onClick={() => setEditIsPinned(!editIsPinned)}
@@ -1226,110 +1021,15 @@ export const QuickNotesView: React.FC<QuickNotesViewProps> = ({
                   </div>
                 </div>
 
-                {/* Rich Formatting Toolbar in Edit Modal */}
-                {editMode === 'write' && (
-                  <div className="shrink-0 flex flex-wrap items-center gap-1 py-1 px-1.5 bg-black/35 border border-white/10 rounded-xl text-xs text-white/70">
-                    <button
-                      type="button"
-                      onClick={() => insertFormatting(editTextareaRef.current, '==', '==', 'texto remarcado', editContent, setEditContent)}
-                      className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-amber-400/20 hover:text-amber-300 text-amber-400 font-bold transition-all text-[11px]"
-                      title="Remarcar texto (Resaltador amarillo)"
-                    >
-                      <Highlighter className="w-3.5 h-3.5" />
-                      <span>Remarcar</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => insertFormatting(editTextareaRef.current, '==rose:', '==', 'resaltado rosa', editContent, setEditContent)}
-                      className="flex items-center gap-1 px-1.5 py-1 rounded-lg hover:bg-[#FF6688]/20 hover:text-[#FFB0CC] text-[#FF99AA] font-bold transition-all text-[11px]"
-                      title="Remarcar en color rosa"
-                    >
-                      <span className="w-2 h-2 rounded-full bg-[#FF6688]" />
-                      <span>Rosa</span>
-                    </button>
-
-                    <div className="w-[1px] h-3.5 bg-white/15 mx-0.5" />
-
-                    <button
-                      type="button"
-                      onClick={() => insertFormatting(editTextareaRef.current, '**', '**', 'negrita', editContent, setEditContent)}
-                      className="p-1 rounded-lg hover:bg-white/15 hover:text-white transition-all"
-                      title="Negrita (**texto**)"
-                    >
-                      <Bold className="w-3.5 h-3.5" />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => insertFormatting(editTextareaRef.current, '*', '*', 'cursiva', editContent, setEditContent)}
-                      className="p-1 rounded-lg hover:bg-white/15 hover:text-white transition-all"
-                      title="Cursiva (*texto*)"
-                    >
-                      <Italic className="w-3.5 h-3.5" />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => insertFormatting(editTextareaRef.current, '<u>', '</u>', 'subrayado', editContent, setEditContent)}
-                      className="p-1 rounded-lg hover:bg-white/15 hover:text-white transition-all"
-                      title="Subrayado (<u>texto</u>)"
-                    >
-                      <UnderlineIcon className="w-3.5 h-3.5" />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => insertFormatting(editTextareaRef.current, '~~', '~~', 'tachado', editContent, setEditContent)}
-                      className="p-1 rounded-lg hover:bg-white/15 hover:text-white transition-all"
-                      title="Tachado (~~texto~~)"
-                    >
-                      <Strikethrough className="w-3.5 h-3.5" />
-                    </button>
-
-                    <div className="w-[1px] h-3.5 bg-white/15 mx-0.5" />
-
-                    <button
-                      type="button"
-                      onClick={() => insertLinePrefix(editTextareaRef.current, '- ', editContent, setEditContent)}
-                      className="flex items-center gap-1 px-1.5 py-1 rounded-lg hover:bg-white/15 hover:text-white transition-all text-[11px]"
-                      title="Lista con viñetas"
-                    >
-                      <List className="w-3.5 h-3.5" />
-                      <span>Lista</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => insertLinePrefix(editTextareaRef.current, '- [ ] ', editContent, setEditContent)}
-                      className="flex items-center gap-1 px-1.5 py-1 rounded-lg hover:bg-white/15 hover:text-white transition-all text-[11px]"
-                      title="Casilla de verificación / Tarea"
-                    >
-                      <CheckSquare className="w-3.5 h-3.5" />
-                      <span>Tarea</span>
-                    </button>
-                  </div>
-                )}
-
-                <div className="flex-1 flex flex-col min-h-[160px]">
-                  {editMode === 'write' ? (
-                    <textarea
-                      ref={editTextareaRef}
-                      value={editContent}
-                      onChange={(e) => setEditContent(e.target.value)}
-                      placeholder="Contenido de la nota..."
-                      className="w-full flex-1 min-h-[160px] p-3.5 bg-white/[0.04] border border-white/15 rounded-xl text-xs text-white placeholder-white/40 focus:outline-hidden focus:border-[#FF99AA] leading-relaxed font-medium resize-y"
-                    />
-                  ) : (
-                    <div className="flex-1 p-3.5 bg-black/30 border border-white/10 rounded-2xl min-h-[160px] overflow-y-auto">
-                      {editContent.trim() ? (
-                        <FormattedNoteContent content={editContent} />
-                      ) : (
-                        <span className="text-white/30 text-xs italic">Sin contenido aún.</span>
-                      )}
-                    </div>
-                  )}
-                </div>
+                <RichNoteEditor
+                  key={editingNote.id}
+                  initialValue={editContent}
+                  onChange={setEditContent}
+                  placeholder="Escribe tu nota aquí..."
+                  minHeight="160px"
+                  activeColor={editHighlightColor}
+                  onSelectColor={setEditHighlightColor}
+                />
               </div>
 
               {/* Bottom bar */}
